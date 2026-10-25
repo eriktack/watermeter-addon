@@ -1,0 +1,3 @@
+# Debian (not Alpine): the TFLite and ONNX runtimes ship glibc wheels only.
+build_from:
+  amd64: ghcr.io/home-assistant/amd64-base-debian:bookworm

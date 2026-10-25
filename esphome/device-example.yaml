@@ -1,0 +1,24 @@
+# Device stub for one ESP32-CAM (plan §1). Copy this file into HA's ESPHome Device Builder (or keep it next to
+# `watermeter-cam.yaml` for local testing) and put the secrets in its `secrets.yaml` (see secrets.example.yaml).
+# Real secrets never go into this file or into git.
+
+substitutions:
+  name: watermeter-cam
+
+esphome:
+  name: ${name}
+  friendly_name: Water meter camera
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_key
+
+packages:
+  # Local testing: the package next to this file.
+  watermeter: !include watermeter-cam.yaml
+  # Release (after the release tag exists in the public add-on repo; plan §1). Replace the include above with:
+  # watermeter: github://eriktack/watermeter-addon/esphome/watermeter-cam.yaml@v0.0.0

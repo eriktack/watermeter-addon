@@ -1,0 +1,34 @@
+"""Decoding and cropping (task C3 together with alignment; OpenCV)."""
+from __future__ import annotations
+
+from typing import Sequence
+
+import cv2
+import numpy as np
+
+from ..models import Box, Image
+
+
+def decode_jpeg(jpeg: bytes) -> Image:
+    """JPEG bytes → RGB uint8 HxWx3. Raises ValueError for data that is not a decodable image."""
+    if not jpeg:
+        raise ValueError("empty image data")
+    bgr = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        raise ValueError("data is not a decodable image")
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
+def crop(image: Image, boxes: Sequence[Box]) -> list[Image]:
+    """Cut the boxes out of an image that is already in reference coordinates. Boxes are clipped to the image;
+    a box fully outside gives an empty (0-size) array."""
+    height, width = image.shape[:2]
+    out = []
+    for box in boxes:
+        x0, y0 = max(box.x, 0), max(box.y, 0)
+        x1, y1 = min(box.x + box.w, width), min(box.y + box.h, height)
+        if x1 <= x0 or y1 <= y0:
+            out.append(image[0:0, 0:0])
+        else:
+            out.append(image[y0:y1, x0:x1].copy())
+    return out

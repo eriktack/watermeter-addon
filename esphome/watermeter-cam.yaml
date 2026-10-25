@@ -1,0 +1,70 @@
+# Watermeter camera package (plan §3, task H2). Contains no secrets, no Wi-Fi and no device name: the device stub
+# (device-example.yaml, or HA's ESPHome Device Builder) provides `esphome.name`, `wifi`, `api` and includes this file.
+#
+# The camera stays idle (idle_framerate 0): the add-on asks for images through the native API.
+# Framework: esp-idf (the esp32_camera component supports it on the ESP32-CAM; no Arduino needed).
+
+esp32:
+  board: esp32cam
+  framework:
+    type: esp-idf
+
+# The camera needs PSRAM for its frame buffers (quad SPI on the ESP32-CAM).
+psram:
+  mode: quad
+  speed: 80MHz
+
+# AI-Thinker ESP32-CAM pin map (ESPHome esp32_camera docs, AI-Thinker example).
+esp32_camera:
+  name: "Watermeter camera"
+  external_clock:
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_pins:
+    sda: GPIO26
+    scl: GPIO27
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  power_down_pin: GPIO32
+  resolution: 1024x768
+  jpeg_quality: 10
+  max_framerate: 1 fps
+  idle_framerate: 0 fps
+
+# The light: our own LED strip/LEDs behind a transistor on GPIO13 (plan §3). Full PWM frequency avoids dark bands
+# (rolling shutter); the brightness is set by the resistors, so the light is always on at 100 %.
+output:
+  - platform: ledc
+    id: led_out
+    pin: GPIO13
+    frequency: 20000 Hz
+  # The onboard flash (GPIO4) is covered and never used: an output without a light entity, kept off.
+  - platform: gpio
+    id: flash_out
+    pin: GPIO4
+
+light:
+  - platform: monochromatic
+    name: "Light"
+    id: meter_light
+    output: led_out
+    default_transition_length: 0s
+    restore_mode: ALWAYS_OFF
+
+ota:
+  - platform: esphome
+
+logger:
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi signal"
+    update_interval: 60s
+  - platform: uptime
+    name: "Uptime"
+
+button:
+  - platform: restart
+    name: "Restart"

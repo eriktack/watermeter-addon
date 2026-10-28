@@ -1,5 +1,6 @@
 """MQTT connection (task D2): broker from the Supervisor (`services: mqtt:need`, read via the Supervisor API
-`GET http://supervisor/services/mqtt` with the SUPERVISOR_TOKEN) unless `Options.mqtt_host` is set.
+`GET http://supervisor/services/mqtt` with the SUPERVISOR_TOKEN) unless `Options.mqtt_host` is set. Without a token,
+or when the Supervisor refuses it (401/403), MQTT stops with one error instead of retrying with the same token.
 Publishes discovery on connect and on HA's birth message (`homeassistant/status` = "online").
 Tests: `tests/test_mqtt_client.py` (no broker; the broker lookup and the encoding are injected or patched)."""
 from __future__ import annotations
@@ -10,6 +11,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import aiohttp
@@ -24,6 +26,13 @@ SUPERVISOR_MQTT_URL = "http://supervisor/services/mqtt"
 BIRTH_TOPIC = f"{DISCOVERY_PREFIX}/status"
 RECONNECT_DELAYS_S = (1, 2, 5, 10, 30)  # the last value repeats
 LOG_INTERVAL_S = 60
+# s6-overlay v3 (the HA base image's /init) clears the environment before it runs the CMD and keeps it here.
+S6_TOKEN_FILE = Path("/run/s6/container_environment/SUPERVISOR_TOKEN")
+NO_BROKER_HINT = "set mqtt_host (and user and password) in the add-on options, or restart the add-on"
+
+
+class SupervisorAuthError(Exception):
+    """No Supervisor token, or the Supervisor refused it: retrying with the same token cannot help."""
 
 
 @dataclass(frozen=True)
@@ -34,9 +43,23 @@ class Broker:
     password: str | None
 
 
+def supervisor_token() -> tuple[str, str]:
+    """(token, where it came from): $SUPERVISOR_TOKEN, else the s6 container environment; ("", "") if neither."""
+    token = os.environ.get("SUPERVISOR_TOKEN", "").strip()
+    if token:
+        return token, "environment"
+    try:
+        token = S6_TOKEN_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+    return (token, str(S6_TOKEN_FILE)) if token else ("", "")
+
+
 async def fetch_supervisor_mqtt(session: aiohttp.ClientSession, token: str) -> dict:
     """The `data` object of the Supervisor's MQTT service (host, port, username, password)."""
     async with session.get(SUPERVISOR_MQTT_URL, headers={"Authorization": f"Bearer {token}"}) as response:
+        if response.status in (401, 403):
+            raise SupervisorAuthError(f"the Supervisor refused the add-on token (HTTP {response.status})")
         response.raise_for_status()
         body = await response.json()
     return body["data"]
@@ -47,7 +70,11 @@ async def resolve_broker(options: Options, fetch=fetch_supervisor_mqtt) -> Broke
     if options.mqtt_host:
         return Broker(options.mqtt_host, options.mqtt_port, options.mqtt_username or None,
                       options.mqtt_password or None)
-    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    token, source = supervisor_token()
+    if not token:
+        raise SupervisorAuthError("no Supervisor token (SUPERVISOR_TOKEN is empty and "
+                                  f"{S6_TOKEN_FILE} is missing)")
+    log.debug("Supervisor token from %s", source)
     async with aiohttp.ClientSession() as session:
         data = await fetch(session, token)
     return Broker(data["host"], int(data["port"]), data.get("username") or None, data.get("password") or None)
@@ -105,6 +132,9 @@ class MqttPublisher:
                         await self._handle(message.topic.value, message.payload)
             except asyncio.CancelledError:
                 raise
+            except SupervisorAuthError as exc:
+                log.error("MQTT stopped: %s; %s", exc, NO_BROKER_HINT)
+                return
             except Exception as exc:  # broker down, Supervisor not ready, network errors: retry
                 self._log_failure(exc)
             finally:

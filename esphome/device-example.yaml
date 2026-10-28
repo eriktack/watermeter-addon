@@ -18,7 +18,7 @@ api:
     key: !secret api_key
 
 packages:
-  # Local testing: the package next to this file.
-  watermeter: !include watermeter-cam.yaml
-  # Release (after the release tag exists in the public add-on repo; plan §1). Replace the include above with:
-  # watermeter: github://eriktack/watermeter-addon/esphome/watermeter-cam.yaml@v0.0.0
+  # In HA's ESPHome Device Builder: the package from the public release repo (`main` = the latest release).
+  watermeter: github://eriktack/watermeter-addon/esphome/watermeter-cam.yaml@main
+  # Local testing with the file next to this one instead:
+  # watermeter: !include watermeter-cam.yaml

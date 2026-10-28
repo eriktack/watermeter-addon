@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Fixes MQTT: the add-on now gets its broker from the Supervisor (the token was lost at startup)
+
 ## 0.1.2
 
 - Fixes the release build (test fixtures were missing). First published version.

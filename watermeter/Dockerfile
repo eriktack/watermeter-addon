@@ -16,4 +16,6 @@ COPY app /app
 WORKDIR /app
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1
 EXPOSE 8099
-CMD ["/opt/venv/bin/python", "-m", "watermeter", "/data", "/app/models"]
+# The base image's s6-overlay /init clears the environment before it runs the CMD (SUPERVISOR_TOKEN and the ENV lines
+# above included); with-contenv puts it back.
+CMD ["/command/with-contenv", "/opt/venv/bin/python", "-m", "watermeter", "/data", "/app/models"]

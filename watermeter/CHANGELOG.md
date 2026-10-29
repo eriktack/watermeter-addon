@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Capture: the first image of a burst is thrown away (it was the stale buffered frame, sometimes black)
+
 ## 0.1.3
 
 - Fixes MQTT: the add-on now gets its broker from the Supervisor (the token was lost at startup)

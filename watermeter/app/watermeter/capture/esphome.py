@@ -17,6 +17,9 @@ from ..settings import Options
 log = logging.getLogger(__name__)
 
 IMAGE_TIMEOUT_S = 10.0       # wait for one image
+# The camera driver fills its buffer as soon as the previous image is taken, and the camera is idle between bursts:
+# the first image of a burst was shot at the end of the previous one (often in the dark). It is thrown away.
+DISCARD_FRAMES = 1
 BACKOFF_START_S = 2.0        # wait after the first failed connection attempt
 BACKOFF_MAX_S = 60.0
 
@@ -105,7 +108,8 @@ class CameraClient:
             self._client.light_command(self._light_key, state=False, transition_length=0)
 
     async def capture_burst(self, frames: int, settle_s: float, brightness: float) -> list[Frame]:
-        """Light on (brightness) → wait settle_s → take `frames` single images → light off (also on errors)."""
+        """Light on (brightness) → wait settle_s → discard the stale buffered image → take `frames` single images →
+        light off (also on errors)."""
         async with self._lock:
             if not self._connected:
                 await self.connect()
@@ -113,6 +117,8 @@ class CameraClient:
             try:
                 self._light(True, brightness)
                 await asyncio.sleep(settle_s)
+                for _ in range(DISCARD_FRAMES):
+                    await self._image()
                 for index in range(frames):
                     jpeg = await self._image()
                     out.append(Frame(jpeg=jpeg, captured_at=datetime.now(timezone.utc), index=index))

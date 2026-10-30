@@ -7,19 +7,20 @@ from .models import DigitResult, Frame, Image, LineReading, RawReading, Regions,
 from .recognize.base import Recognizer
 from .recognize.vote import vote_line
 from .vision.align import align
-from .vision.images import crop, decode_jpeg
+from .vision.images import crop, decode_jpeg, enhance_contrast
 
 
-def _recognize(recognizer: Recognizer, crops: list[Image]) -> list[DigitResult]:
-    """Recognize the non-empty crops; a box outside the image (empty crop) is an unknown digit."""
+def _recognize(recognizer: Recognizer, crops: list[Image], enhance: bool = False) -> list[DigitResult]:
+    """Recognize the non-empty crops (with `enhance_contrast` first if `enhance`); a box outside the image (empty
+    crop) is an unknown digit."""
     empty = [getattr(c, "size", None) == 0 for c in crops]
-    filled = [c for c, e in zip(crops, empty) if not e]
+    filled = [enhance_contrast(c) if enhance else c for c, e in zip(crops, empty) if not e]
     results = iter(recognizer.recognize(filled) if filled else [])
     return [DigitResult(None, 0.0) if e else next(results) for e in empty]
 
 
 def read_burst(frames: Sequence[Frame], reference: Image, regions: Regions, recognizer: Recognizer,
-               min_mark_score: float) -> RawReading:
+               min_mark_score: float, enhance: bool = False) -> RawReading:
     """Per frame: decode → align → crop the volume (and flow) boxes → recognize. Frames that fail alignment are
     dropped. Then vote per line over the remaining frames (`vote_line`). If no frame aligned: a RawReading with
     aligned=False and the volume line all unknown. `captured_at` = the first frame's time."""
@@ -38,9 +39,9 @@ def read_burst(frames: Sequence[Frame], reference: Image, regions: Regions, reco
         aligned = align(image, reference, regions, min_mark_score).image
         if aligned is None:
             continue
-        volume_votes.append(_recognize(recognizer, crop(aligned, volume_boxes)))
+        volume_votes.append(_recognize(recognizer, crop(aligned, volume_boxes), enhance))
         if flow_boxes:
-            flow_votes.append(_recognize(recognizer, crop(aligned, flow_boxes)))
+            flow_votes.append(_recognize(recognizer, crop(aligned, flow_boxes), enhance))
 
     captured_at = frames[0].captured_at
     if not volume_votes:

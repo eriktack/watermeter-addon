@@ -28,6 +28,16 @@ def rotate(image: Image, degrees: float) -> Image:
     return cv2.warpAffine(image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
+def enhance_contrast(image: Image) -> Image:
+    """Local contrast (CLAHE on the lightness) of a digit crop: the LCD's dark digits on a dark, unevenly lit
+    background come out clearly (2026-10-30: lifted the haverland models from 2-3 to 7-9 of 9 digits on a real image)."""
+    if image.size == 0:
+        return image
+    lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+    lab[..., 0] = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(2, 2)).apply(lab[..., 0])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+
 def crop(image: Image, boxes: Sequence[Box]) -> list[Image]:
     """Cut the boxes out of an image that is already in reference coordinates. Boxes are clipped to the image;
     a box fully outside gives an empty (0-size) array."""

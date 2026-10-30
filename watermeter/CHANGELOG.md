@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8
+
+- Recognition: contrast enhancement on the digit crops (option enhance_contrast) and dig-class11_1701 as the default model; much better on the LCD
+
 ## 0.1.7
 
 - Live, Log and Labels pages: frames are shown turned by the rotation offset, as the reading sees them

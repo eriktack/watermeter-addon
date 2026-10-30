@@ -18,7 +18,7 @@ from aiohttp import web
 
 from ...storage import ImageStore
 from ...vision.align import align
-from ...vision.images import crop, decode_jpeg, rotate
+from ...vision.images import crop, decode_jpeg, enhance_contrast, rotate
 from ...vision.regions_io import (load_reference_bytes, load_regions, regions_from_dict, regions_to_dict,
                                   save_reference, save_regions)
 
@@ -159,14 +159,20 @@ async def api_crop(request: web.Request) -> web.Response:
         if image is None:
             raise web.HTTPNotFound()  # alignment failed: the page shows the scores from api/alignment
     (piece,) = crop(image, [box])
+    if context_settings(request).recognition.enhance_contrast:   # as the model gets it
+        piece = enhance_contrast(piece)
     ok, png = cv2.imencode(".png", cv2.cvtColor(piece, cv2.COLOR_RGB2BGR))
     return web.Response(body=png.tobytes(), content_type="image/png", headers={"Cache-Control": "no-cache"})
 
 
-def context_min_score(request: web.Request) -> float:
+def context_settings(request: web.Request):
     from ..app import context
 
-    return context(request).settings.recognition.min_mark_score
+    return context(request).settings
+
+
+def context_min_score(request: web.Request) -> float:
+    return context_settings(request).recognition.min_mark_score
 
 
 async def api_alignment(request: web.Request) -> web.Response:

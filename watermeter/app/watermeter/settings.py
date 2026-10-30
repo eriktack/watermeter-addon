@@ -31,7 +31,8 @@ class RetentionSettings:
 
 @dataclass
 class RecognitionSettings:
-    model: str = "haverland/dig-class11_1910_s2_q.tflite"  # path below the models folder
+    model: str = "haverland/dig-class11_1701_s2.tflite"  # path below the models folder (decisions.md)
+    enhance_contrast: bool = True      # local contrast (CLAHE) on each digit crop before the model
     min_digit_confidence: float = 0.5  # below this a digit counts as unknown (tune with C1)
     min_mark_score: float = 0.6        # alignment: minimum template-match score per mark (tune with C3)
 
@@ -76,7 +77,8 @@ class Options:
     keep_accepted_days: int = 7
     keep_rejected_days: int = 30
     # recognition
-    model: str = "haverland/dig-class11_1910_s2_q.tflite"
+    model: str = "haverland/dig-class11_1701_s2.tflite"
+    enhance_contrast: bool = True
     min_digit_confidence: float = 0.5
     min_mark_score: float = 0.6
     # validation
@@ -101,7 +103,8 @@ def settings_from_options(options: Options) -> Settings:
                                 brightness=options.light_brightness_pct / 100),
         retention=RetentionSettings(accepted_days=options.keep_accepted_days,
                                     rejected_days=options.keep_rejected_days),
-        recognition=RecognitionSettings(model=options.model, min_digit_confidence=options.min_digit_confidence,
+        recognition=RecognitionSettings(model=options.model, enhance_contrast=options.enhance_contrast,
+                                        min_digit_confidence=options.min_digit_confidence,
                                         min_mark_score=options.min_mark_score),
         validation=ValidationSettings(
             reject_patterns=[p.strip() for p in options.reject_patterns if p.strip()],

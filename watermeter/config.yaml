@@ -1,7 +1,7 @@
 name: Watermeter
 # The version below is a placeholder: the real one is "version" in pyproject.toml, written in when the add-on is
 # published (tools/publish_addon.py, tools/release.py). Never edit it.
-version: "0.1.7"
+version: "0.1.8"
 slug: watermeter
 description: Reads a water meter with an ESP32-CAM, checks the reading and publishes it to Home Assistant over MQTT
 url: https://github.com/eriktack/watermeter-addon
@@ -31,7 +31,8 @@ options:
   light_brightness_pct: 100
   keep_accepted_days: 7
   keep_rejected_days: 30
-  model: haverland/dig-class11_1910_s2_q.tflite
+  model: haverland/dig-class11_1701_s2.tflite
+  enhance_contrast: true
   min_digit_confidence: 0.5
   min_mark_score: 0.6
   reject_patterns:
@@ -58,7 +59,8 @@ schema:
   light_brightness_pct: int(1,100)
   keep_accepted_days: int(1,365)
   keep_rejected_days: int(1,365)
-  model: list(haverland/dig-class11_1910_s2_q.tflite|haverland/dig-class11_1900_s2_q.tflite|haverland/dig-class11_1701_s2.tflite|nliaudat/v16_10cls_RGB/digit_recognizer_v16.onnx)
+  model: list(haverland/dig-class11_1701_s2.tflite|haverland/dig-class11_1910_s2_q.tflite|haverland/dig-class11_1900_s2_q.tflite|nliaudat/v16_10cls_RGB/digit_recognizer_v16.onnx)
+  enhance_contrast: bool
   min_digit_confidence: float(0,1)
   min_mark_score: float(0,1)
   reject_patterns:

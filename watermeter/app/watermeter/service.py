@@ -159,7 +159,8 @@ class Service:
             self._warned_setup = False
             loop = asyncio.get_running_loop()
             raw = await loop.run_in_executor(None, read_burst, frames, reference, regions, self.recognizer,
-                                             self.settings.recognition.min_mark_score)
+                                             self.settings.recognition.min_mark_score,
+                                             self.settings.recognition.enhance_contrast)
             decision, state = validate(to_validator_input(raw), self.ctx.state, self.settings.validation)
             self._set_state(state)
             self.ctx.last_raw, self.ctx.last_decision = raw, decision

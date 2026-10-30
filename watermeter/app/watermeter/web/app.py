@@ -50,9 +50,10 @@ def render_page(request: web.Request, active: str, title: str, body_html: str, s
     """Wrap page content in the base template. `body_html` is trusted HTML: escape user/meter data with `esc()`."""
     nav = "".join(
         f'<a href="{key}"{ACTIVE if key == active else ""}>{label}</a>' for key, label in NAV)
-    script_tag = f'<script src="static/{script}"></script>' if script else ""
+    version = esc(context(request).version)   # in the static URLs too: an update must not use cached files
+    script_tag = f'<script src="static/{script}?v={version}"></script>' if script else ""
     page = Template((HERE / "templates" / "base.html").read_text(encoding="utf-8")).substitute(
-        title=esc(title), nav=nav, body=body_html, script=script_tag, version=esc(context(request).version))
+        title=esc(title), nav=nav, body=body_html, script=script_tag, version=version)
     return web.Response(text=page, content_type="text/html")
 
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Web: the pages load the new script after an update (the Regions page ran a cached old one)
+
 ## 0.1.5
 
 - Regions: digits and decimals as groups that move and resize together, separate counts for the flow line, rotation offset

@@ -1,6 +1,7 @@
 """Log page (task D4, card `docs/plans/cards/D4.md`). Page `log`, API (relative for ingress):
 - `GET log?all=1&page=N` → the bursts, newest first; only the non-OK ones unless `all=1`, 50 per page.
-- `GET api/image?path=images/...` → one frame below the data folder's `images/` folder (400 otherwise, 404 if missing).
+- `GET api/image?path=images/...` → one frame below the data folder's `images/` folder (400 otherwise, 404 if missing),
+  turned by the regions' rotation offset like the reading does (`frame_response`).
 
 `load_bursts` reads the burst JSON files the service loop writes next to the frames (`images/YYYY-MM-DD/HHMMSS.json`).
 The labels page uses it too.
@@ -13,7 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
+import cv2
 from aiohttp import web
+
+from ...vision.images import decode_jpeg, rotate
+from ...vision.regions_io import load_regions
 
 PAGE_SIZE = 50
 OK = "ok"
@@ -134,4 +139,17 @@ async def api_image(request: web.Request) -> web.StreamResponse:
         raise web.HTTPBadRequest(text="path must be relative and stay inside images/")
     if not target.is_file():
         raise web.HTTPNotFound()
-    return web.FileResponse(target, headers={"Cache-Control": "no-store"})
+    return frame_response(data_dir, target)
+
+
+def frame_response(data_dir: Path, path: Path) -> web.StreamResponse:
+    """A captured frame as the reading sees it: turned by the saved rotation offset (unchanged file if none)."""
+    regions = load_regions(data_dir)
+    if regions is None or not regions.rotation_deg:
+        return web.FileResponse(path, headers={"Cache-Control": "no-store"})
+    try:
+        image = rotate(decode_jpeg(path.read_bytes()), regions.rotation_deg)
+    except ValueError:
+        return web.FileResponse(path, headers={"Cache-Control": "no-store"})
+    ok, jpeg = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 90])
+    return web.Response(body=jpeg.tobytes(), content_type="image/jpeg", headers={"Cache-Control": "no-store"})

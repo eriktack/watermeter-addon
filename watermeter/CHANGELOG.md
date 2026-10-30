@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Live, Log and Labels pages: frames are shown turned by the rotation offset, as the reading sees them
+
 ## 0.1.6
 
 - Web: the pages load the new script after an update (the Regions page ran a cached old one)

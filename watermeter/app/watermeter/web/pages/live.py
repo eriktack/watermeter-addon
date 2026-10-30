@@ -1,5 +1,5 @@
 """Live page (task B3, card `docs/plans/cards/B3.md`). Page `live`, API (relative for ingress):
-- `GET api/latest.jpg` → the newest captured frame (404 if none).
+- `GET api/latest.jpg` → the newest captured frame, turned by the rotation offset (404 if none).
 - `POST api/capture` → capture a burst now (503 if the service has not set `capture_now`).
 """
 from __future__ import annotations
@@ -9,6 +9,7 @@ from pathlib import Path
 from aiohttp import web
 
 from ...storage import ImageStore
+from .log import frame_response
 
 
 def _data_dir(request: web.Request):
@@ -75,7 +76,7 @@ async def api_latest(request: web.Request) -> web.StreamResponse:
     path = _latest_file(_data_dir(request))
     if path is None:
         raise web.HTTPNotFound()
-    return web.FileResponse(path, headers={"Cache-Control": "no-store"})
+    return frame_response(_data_dir(request), path)
 
 
 async def api_capture(request: web.Request) -> web.Response:

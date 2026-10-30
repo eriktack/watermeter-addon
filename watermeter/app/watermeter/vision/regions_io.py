@@ -4,12 +4,14 @@ Files in the data folder: `regions.json` (the `Regions`, JSON below) and `refere
 
     {"reference_width": 640, "reference_height": 480, "rotation_deg": -1.5,
      "marks": [{"name": "logo", "box": [x, y, w, h]}, ...],
-     "volume": {"whole": {"box": [x, y, w, h], "count": 6}, "decimals": null | {"box": [...], "count": 3}},
+     "volume": {"whole": {"x": 150, "y": 205, "width": 36, "height": 70, "count": 6, "gap": 0},
+                "decimals": null | {"x": ..., "y": ..., "width": ..., "height": ..., "count": 3, "gap": 0}},
      "flow": null | {"whole": ..., "decimals": ...}}
 
-A line is two groups, the whole digits and the decimals; each group's box is split into `count` equal digit boxes.
-The boxes are in the coordinates of the reference turned by `rotation_deg`. The older form of a line
-(`{"digits": [[x, y, w, h], ...], "decimals": 3}`) is still read.
+A line is two groups, the whole digits and the decimals. A group is `count` digit boxes of `width` x `height`, the
+first at (x, y) (top left), each next one `width + gap` further right. The boxes are in the coordinates of the
+reference turned by `rotation_deg`. Older forms are still read: a group as one box split into equal digits
+(`{"box": [x, y, w, h], "count": 6}`) and a line as a list of boxes (`{"digits": [[x, y, w, h], ...], "decimals": 3}`).
 """
 from __future__ import annotations
 
@@ -44,10 +46,18 @@ def _group(value: Any, width: int, height: int, what: str) -> list[Box]:
     count = value.get("count")
     if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= MAX_DIGITS:
         raise ValueError(f"{what}: the digit count must be between 1 and {MAX_DIGITS}")
-    box = _box(value.get("box"), width, height, what)
-    if box.w < count:
-        raise ValueError(f"{what}: narrower than one pixel per digit")
-    return split_line(box.x, box.y, box.w, box.h, count)
+    if "box" in value:   # older form: one box split into equal digits
+        box = _box(value.get("box"), width, height, what)
+        if box.w < count:
+            raise ValueError(f"{what}: narrower than one pixel per digit")
+        return split_line(box.x, box.y, box.w, box.h, count)
+    x, y, w, h, gap = (value.get(k) for k in ("x", "y", "width", "height", "gap"))
+    gap = 0 if gap is None else gap
+    if not isinstance(gap, int) or isinstance(gap, bool) or gap < 0:
+        raise ValueError(f"{what}: the gap must be a whole number of at least 0")
+    first = _box([x, y, w, h], width, height, f"{what} digit 1")
+    return [_box([first.x + i * (first.w + gap), first.y, first.w, first.h], width, height, f"{what} digit {i + 1}")
+            for i in range(count)]
 
 
 def _line(value: Any, width: int, height: int, what: str) -> Line:
@@ -94,12 +104,12 @@ def regions_from_dict(data: Any) -> Regions:
 
 
 def _group_dict(boxes: tuple[Box, ...]) -> dict | None:
-    """The group's outline (the boxes' bounds) and its count; None for no boxes."""
+    """The group of these boxes: the first box, the count and the gap between the first two; None for no boxes."""
     if not boxes:
         return None
-    x0, y0 = min(b.x for b in boxes), min(b.y for b in boxes)
-    x1, y1 = max(b.x + b.w for b in boxes), max(b.y + b.h for b in boxes)
-    return {"box": [x0, y0, x1 - x0, y1 - y0], "count": len(boxes)}
+    first = boxes[0]
+    gap = max(boxes[1].x - first.x - first.w, 0) if len(boxes) > 1 else 0
+    return {"x": first.x, "y": first.y, "width": first.w, "height": first.h, "count": len(boxes), "gap": gap}
 
 
 def _line_dict(line: Line) -> dict:

@@ -43,10 +43,11 @@ BODY = """\
       <label>rotation ° <input id="rotation" type="number" min="-45" max="45" step="0.1" value="0.0" style="width:5em"></label>
       <button id="remove-group" type="button">Remove this group</button>
     </div>
-    <p class="muted">Drag a rectangle around a group of digits: it is split into equal boxes. Change a group's position or
-    size (all its digits together) in the table. Turn the image (counterclockwise is positive) until the digits are
-    level; every camera image is turned the same way. Marks are distinctive fixed spots (a logo, printed text), used
-    to align every image.</p>
+    <p class="muted">Drag a rectangle around a group of digits: it is split into equal digit boxes. In the table, width is
+    one digit's width and gap the space between digits; y is counted from the image's bottom edge to the box's bottom
+    edge, so a new height keeps the bottom where it is. Hold an arrow in a field to move live. Turn the image
+    (counterclockwise is positive) until the digits are level; every camera image is turned the same way. Marks are
+    distinctive fixed spots (a logo, printed text), used to align every image.</p>
     <canvas id="canvas"></canvas>
     <table id="boxes"></table>
     <div class="toolbar">

@@ -25,7 +25,7 @@ def _latest_file(data_dir) -> Path | None:
 
 
 def _body(request: web.Request) -> str:
-    from ..app import context, esc
+    from ..app import context, esc, time_html
 
     ctx = context(request)
     decision, raw = ctx.last_decision, ctx.last_raw
@@ -38,12 +38,13 @@ def _body(request: web.Request) -> str:
         value = "—" if decision.value_l is None else f"{decision.value_l / 1000:.3f} m³"
         status_class = "ok" if decision.accepted else "bad"
         detail = f' <span class="muted">{esc(decision.detail)}</span>' if decision.detail else ""
+        flow = f"\n  <dt>Flow (raw)</dt><dd>{esc(raw.flow.text)} m³/h</dd>" if raw.flow is not None else ""
         reading = f"""\
 <dl class="reading">
   <dt>Volume</dt><dd class="value">{esc(value)}</dd>
-  <dt>Raw reading</dt><dd>{esc(raw.volume.text)}</dd>
+  <dt>Raw reading</dt><dd>{esc(raw.volume.text)}</dd>{flow}
   <dt>Status</dt><dd class="{status_class}">{esc(decision.status.value)}{detail}</dd>
-  <dt>Last reading</dt><dd>{esc(raw.captured_at.isoformat(timespec="seconds"))}</dd>
+  <dt>Last reading</dt><dd>{time_html(raw.captured_at.isoformat(timespec="seconds"))}</dd>
   <dt>Confidence</dt><dd>{raw.volume.confidence * 100:.1f} %</dd>
 </dl>"""
 

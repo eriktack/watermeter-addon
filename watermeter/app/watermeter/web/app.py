@@ -61,6 +61,11 @@ def esc(value: object) -> str:
     return html.escape(str(value))
 
 
+def time_html(iso: str) -> str:
+    """A UTC ISO time as a `<time>` element; `static/time.js` shows it in the browser's local time."""
+    return f'<time datetime="{esc(iso)}">{esc(iso)}</time>'
+
+
 async def index(request: web.Request) -> web.Response:
     raise web.HTTPFound("live")
 

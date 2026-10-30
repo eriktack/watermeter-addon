@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9
+
+- Regions: digit width per digit, gap between digits, y counted from the bottom, live update while an arrow is held. Log and Live: local times, the raw flow next to the volume
+
 ## 0.1.8
 
 - Recognition: contrast enhancement on the digit crops (option enhance_contrast) and dig-class11_1701 as the default model; much better on the LCD

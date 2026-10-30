@@ -27,7 +27,7 @@ def _state(data_dir: Path) -> tuple[list[Burst], list[bool]]:
 
 
 def _body(bursts: list[Burst], labelled: list[bool]) -> str:
-    from ..app import esc
+    from ..app import esc, time_html
 
     done = sum(labelled)
     progress = f'<p class="muted">{done} of {len(bursts)} bursts labelled</p>'
@@ -44,7 +44,7 @@ def _body(bursts: list[Burst], labelled: list[bool]) -> str:
     image = quote(burst.image, safe="/")
     return f"""\
 {progress}
-<p class="muted">{esc(burst.time)} · {esc(burst.status)} · {esc(burst.detail)}</p>
+<p class="muted">{time_html(burst.time)} · {esc(burst.status)} · {esc(burst.detail)}</p>
 <img src="api/image?path={image}" alt="frame 0" width="480">
 <form method="post" action="labels" class="toolbar">
   <input type="hidden" name="image" value="{esc(burst.image)}">

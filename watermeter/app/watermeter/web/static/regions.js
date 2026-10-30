@@ -1,5 +1,6 @@
 // Regions page (C2). State = the regions JSON of api/regions; all URLs are relative (ingress).
-// A line (volume, flow) is two groups, whole digits and decimals: one box each, split into `count` equal digits.
+// A line (volume, flow) is two groups, whole digits and decimals: `count` digits of width x height, `gap` apart.
+// The table shows y from the image's bottom edge to the box's bottom edge; changing a height keeps that edge.
 (() => {
   const $ = id => document.getElementById(id);
   const COLORS = { mark: '#d1832a', volume: '#1a9f37', flow: '#2f81f7' };
@@ -19,21 +20,23 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const changed = () => { dirty = true; draw(); renderTable(); renderCrops(); };
 
-  function split([x, y, w, h], count) {
-    const edges = Array.from({ length: count + 1 }, (_, i) => x + Math.round(w * i / count));
-    return Array.from({ length: count }, (_, i) => [edges[i], y, edges[i + 1] - edges[i], h]);
-  }
-
-  // ---- items: the marks and the groups, each with a box [x,y,w,h] in (turned) reference pixels ----------------
+  // ---- items: marks ([x,y,w,h]) and groups ({x,y,width,height,count,gap}), as rows with a common accessor ------
+  // rect(item) = [x, y, w, h] of the item's (first) box in reference pixels, y from the top.
   function items() {
     const out = [];
-    state.marks.forEach((m, i) => m && out.push({ kind: 'mark', key: 'mark' + i, index: i, label: 'mark ' + (i + 1), box: m }));
+    state.marks.forEach((m, i) => m && out.push({ kind: 'mark', key: 'mark' + i, index: i, label: 'mark ' + (i + 1), mark: m }));
     for (const line of LINES) for (const g of GROUPS) {
       const group = state[line] && state[line][g];
-      if (group) out.push({ kind: line, key: line + '.' + g, group, label: `${line} ${g === 'whole' ? 'digits' : 'decimals'}`, box: group.box });
+      if (group) out.push({ kind: line, key: line + '.' + g, group, label: `${line} ${g === 'whole' ? 'digits' : 'decimals'}` });
     }
     return out;
   }
+  const rect = item => item.mark ? item.mark : [item.group.x, item.group.y, item.group.width, item.group.height];
+  function setRect(item, [x, y, w, h]) {
+    if (item.mark) { item.mark.splice(0, 4, x, y, w, h); return; }
+    Object.assign(item.group, { x, y, width: w, height: h });
+  }
+  const boxes = g => Array.from({ length: g.count }, (_, i) => [g.x + i * (g.width + g.gap), g.y, g.width, g.height]);
 
   function draw() {
     if (!image) return;
@@ -45,9 +48,10 @@
     for (const item of items()) {
       ctx.strokeStyle = ctx.fillStyle = COLORS[item.kind];
       ctx.lineWidth = state.selected === item.key ? 3 : 1.5;
-      const boxes = item.kind === 'mark' ? [item.box] : split(item.box, item.group.count);
-      for (const b of boxes) { const [x, y, w, h] = b.map(v => v * scale); ctx.strokeRect(x, y, w, h); }
-      const [x, y] = item.box.map(v => v * scale);
+      for (const b of item.mark ? [item.mark] : boxes(item.group)) {
+        const [x, y, w, h] = b.map(v => v * scale); ctx.strokeRect(x, y, w, h);
+      }
+      const [x, y] = rect(item).map(v => v * scale);
       ctx.font = '12px system-ui'; ctx.fillText(item.label, x, Math.max(y - 3, 10));
     }
     if (drag) {
@@ -56,31 +60,41 @@
     }
   }
 
+  // table columns: x, y (bottom-based), width (per digit), height, gap, digits / name
   function renderTable() {
     const t = $('boxes');
-    t.innerHTML = '<tr><th></th><th>x</th><th>y</th><th>width</th><th>height</th><th>digits / name</th></tr>';
+    t.innerHTML = '<tr><th></th><th>x</th><th>y (from bottom)</th><th>width</th><th>height</th><th>gap</th><th>digits / name</th></tr>';
     for (const item of items()) {
       const tr = document.createElement('tr');
       if (state.selected === item.key) tr.style.background = 'rgba(127,127,127,.18)';
-      tr.innerHTML = '<td></td>' + [0, 1, 2, 3].map(i => `<td><input type="number" data-i="${i}" style="width:5em"></td>`).join('') + '<td></td>';
+      tr.innerHTML = '<td></td>' + '<td></td>'.repeat(6);
       tr.cells[0].textContent = item.label;
       tr.cells[0].style.cursor = 'pointer';
       tr.cells[0].onclick = () => { state.selected = item.key; draw(); renderTable(); };
-      tr.querySelectorAll('input').forEach(inp => {
-        const i = Number(inp.dataset.i);
-        inp.value = item.box[i];
-        inp.onchange = () => { item.box[i] = Math.max(i < 2 ? 0 : 1, Math.round(Number(inp.value)) || 0); state.selected = item.key; changed(); };
+      const field = (cell, get, set, min, width = '5em') => {
+        const inp = document.createElement('input');
+        inp.type = 'number'; inp.min = min; inp.style.width = width; inp.value = get();
+        // `input` fires on every step while an arrow is held: redraw live, re-render the table only on `change`
+        inp.oninput = () => { const v = Math.round(Number(inp.value)); if (Number.isFinite(v)) { set(Math.max(min, v)); state.selected = item.key; dirty = true; draw(); } };
+        inp.onchange = () => { inp.value = get(); changed(); };
         inp.onfocus = () => { state.selected = item.key; draw(); };
-      });
-      const extra = document.createElement('input');
-      if (item.kind === 'mark') {
-        extra.value = state.names[item.index]; extra.style.width = '7em';
-        extra.onchange = () => { state.names[item.index] = extra.value.trim() || state.names[item.index]; dirty = true; };
+        tr.cells[cell].appendChild(inp);
+      };
+      const H = state.ref.height;
+      const r = () => rect(item);
+      field(1, () => r()[0], v => { const [, y, w, h] = r(); setRect(item, [v, y, w, h]); }, 0);
+      field(2, () => H - r()[1] - r()[3], v => { const [x, , w, h] = r(); setRect(item, [x, H - v - h, w, h]); }, 0);
+      field(3, () => r()[2], v => { const [x, y, , h] = r(); setRect(item, [x, y, v, h]); }, 1);
+      field(4, () => r()[3], v => { const [x, y, w, h] = r(); setRect(item, [x, y + h - v, w, v]); }, 1);   // bottom stays
+      if (item.group) {
+        field(5, () => item.group.gap, v => { item.group.gap = v; }, 0, '4em');
+        field(6, () => item.group.count, v => { item.group.count = clamp(v, 1, 12); }, 1, '4em');
       } else {
-        extra.type = 'number'; extra.min = 1; extra.max = 12; extra.value = item.group.count; extra.style.width = '4em';
-        extra.onchange = () => { item.group.count = clamp(Math.round(Number(extra.value)) || 1, 1, 12); changed(); };
+        const name = document.createElement('input');
+        name.value = state.names[item.index]; name.style.width = '7em';
+        name.onchange = () => { state.names[item.index] = name.value.trim() || state.names[item.index]; dirty = true; };
+        tr.cells[6].appendChild(name);
       }
-      tr.cells[5].appendChild(extra);
       t.appendChild(tr);
     }
   }
@@ -94,7 +108,9 @@
     else {
       const [line, g] = mode.split('.');
       state[line] = state[line] || { whole: null, decimals: null };
-      state[line][g] = { box: [x, y, w, h], count: clamp(Math.round(Number($('count').value)) || 1, 1, 12) };
+      const count = clamp(Math.round(Number($('count').value)) || 1, 1, 12);
+      const gap = state[line][g] ? state[line][g].gap : 0;   // a redrawn group keeps its gap
+      state[line][g] = { x, y, width: Math.max(1, Math.round((w - gap * (count - 1)) / count)), height: h, count, gap };
     }
     state.selected = mode;
     changed();
@@ -190,10 +206,11 @@
   $('save').onclick = save;
   $('source').onchange = renderCrops;
   $('mode').onchange = syncCount;
-  $('rotation').onchange = () => {
-    state.rotation = clamp(Math.round(Number($('rotation').value) * 10) / 10 || 0, -45, 45);
-    $('rotation').value = state.rotation.toFixed(1); changed();
+  $('rotation').oninput = () => {   // live while an arrow is held
+    const v = Math.round(Number($('rotation').value) * 10) / 10;
+    if (Number.isFinite(v)) { state.rotation = clamp(v, -45, 45); dirty = true; draw(); }
   };
+  $('rotation').onchange = () => { $('rotation').value = state.rotation.toFixed(1); changed(); };
   $('remove-group').onclick = () => {
     const mode = $('mode').value;
     if (mode.startsWith('mark')) state.marks[Number(mode.slice(4))] = null;

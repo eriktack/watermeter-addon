@@ -73,7 +73,7 @@ def _page_link(show_all: bool, page: int) -> str:
 
 
 def _body(bursts: list[Burst], show_all: bool, page: int) -> str:
-    from ..app import esc
+    from ..app import esc, time_html
 
     shown = bursts if show_all else [b for b in bursts if b.status != OK]
     pages = max(1, math.ceil(len(shown) / PAGE_SIZE))
@@ -85,12 +85,13 @@ def _body(bursts: list[Burst], show_all: bool, page: int) -> str:
             f'<a href="api/image?path={quote(f, safe="/")}" target="_blank" rel="noopener">'
             f'<img src="api/image?path={quote(f, safe="/")}" width="160" loading="lazy" alt="frame"></a>'
             for f in b.frames)
+        flow = f'<br><span class="muted">flow {esc(b.flow)} m³/h</span>' if b.flow else ""
         rows.append(f"""\
 <tr>
-  <td>{esc(b.time)}</td>
+  <td>{time_html(b.time)}</td>
   <td class="{status_class}">{esc(b.status)}</td>
   <td>{esc(b.detail)}</td>
-  <td>{esc(b.raw)}</td>
+  <td>{esc(b.raw)}{flow}</td>
   <td>{b.confidence * 100:.1f} %</td>
   <td class="thumbs">{thumbs}</td>
 </tr>""")

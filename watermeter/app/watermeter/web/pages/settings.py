@@ -23,7 +23,9 @@ def _input(f: Field, value, models: tuple[str, ...]) -> str:
     if f.kind == "model" and value not in choices:
         choices = (value, *choices)
     if choices:
-        options = "".join(f'<option{" selected" if c == value else ""}>{esc(c)}</option>' for c in choices)
+        shown = f.choice_labels if f.kind == "choice" and f.choice_labels else choices
+        options = "".join(f'<option value="{esc(c)}"{" selected" if c == value else ""}>{esc(t)}</option>'
+                          for c, t in zip(choices, shown))
         return f'<select name="{name}">{options}</select>'
     if f.kind == "model":
         return f'<input name="{name}" value="{esc(value)}" size="40">'
@@ -38,8 +40,9 @@ def _body(settings: Settings, models: tuple[str, ...], message: str = "", bad: b
     sections = []
     for group, title in GROUPS:
         rows = "".join(
-            f'<tr><th><label>{esc(f.label)}</label></th><td>{_input(f, values[f.group][f.name], models)}</td>'
-            f'<td class="muted">{esc(f.help)}</td></tr>' for f in FIELDS if f.group == group)
+            f'<tr><th><label>{esc(f.label)}</label><div class="muted" style="font-weight:normal;max-width:34em">'
+            f'{esc(f.help)}</div></th><td>{_input(f, values[f.group][f.name], models)}</td></tr>'
+            for f in FIELDS if f.group == group)
         sections.append(f"<h2>{esc(title)}</h2><table>{rows}</table>")
     note = f'<p class="{"bad" if bad else "ok"}">{esc(message)}</p>' if message else ""
     return f"""\

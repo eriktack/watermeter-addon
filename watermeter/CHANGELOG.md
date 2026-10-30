@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Settings: plain-language names and an explanation for every setting. Log: Clear log button (labelled pictures are kept)
+
 ## 0.2.1
 
 - Capture: a missing camera image is asked for again (up to 3 times) instead of failing the capture

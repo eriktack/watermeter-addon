@@ -1,5 +1,6 @@
 """Log page (task D4, card `docs/plans/cards/D4.md`). Page `log`, API (relative for ingress):
 - `GET log?all=1&page=N` → the bursts, newest first; only the non-OK ones unless `all=1`, 50 per page.
+- `POST log` (form `clear=1`) → delete every burst and its frames except labelled images, then show the page.
 - `GET api/image?path=images/...` → one frame below the data folder's `images/` folder (400 otherwise, 404 if missing),
   turned by the regions' rotation offset like the reading does (`frame_response`).
 
@@ -17,6 +18,8 @@ from urllib.parse import quote
 import cv2
 from aiohttp import web
 
+from ...labels import load_labels
+from ...storage import ImageStore
 from ...vision.images import decode_jpeg, rotate
 from ...vision.regions_io import load_regions
 
@@ -72,9 +75,10 @@ def _page_link(show_all: bool, page: int) -> str:
     return f"log?{'all=1&' if show_all else ''}page={page}"
 
 
-def _body(bursts: list[Burst], show_all: bool, page: int) -> str:
+def _body(bursts: list[Burst], show_all: bool, page: int, message: str = "") -> str:
     from ..app import esc, time_html
 
+    message = f'<p class="ok">{esc(message)}</p>' if message else ""
     shown = bursts if show_all else [b for b in bursts if b.status != OK]
     pages = max(1, math.ceil(len(shown) / PAGE_SIZE))
     page = min(max(page, 1), pages)
@@ -111,8 +115,11 @@ def _body(bursts: list[Burst], show_all: bool, page: int) -> str:
   <a href="{filter_link}">{filter_text}</a>
   <span class="muted">page {page} of {pages}, {len(shown)} bursts</span>
   {prev} {nxt}
+  <form method="post" action="log" onsubmit="return confirm('Delete all readings and their pictures? Labelled pictures are kept.')">
+    <button type="submit" name="clear" value="1">Clear log</button>
+  </form>
 </div>
-{table}
+{message}{table}
 """
 
 
@@ -126,6 +133,18 @@ async def handler(request: web.Request) -> web.Response:
     show_all = request.query.get("all") == "1"
     bursts = load_bursts(context(request).data_dir)
     return render_page(request, "log", "Log", _body(bursts, show_all, page))
+
+
+async def clear_handler(request: web.Request) -> web.Response:
+    from ..app import context, render_page
+
+    data_dir = context(request).data_dir
+    form = await request.post()
+    message = ""
+    if form.get("clear") == "1":
+        deleted = ImageStore(data_dir).clear(set(load_labels(data_dir / "labels.json")))
+        message = f"Deleted {deleted} pictures; labelled ones were kept."
+    return render_page(request, "log", "Log", _body(load_bursts(data_dir), False, 1, message))
 
 
 async def api_image(request: web.Request) -> web.StreamResponse:

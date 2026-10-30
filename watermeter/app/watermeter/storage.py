@@ -81,6 +81,19 @@ class ImageStore:
             self._tidy(day)
         return deleted
 
+    def clear(self, labelled: set[str]) -> int:
+        """Delete every burst (frames and JSON) except labelled images (relative paths). Returns the frames deleted."""
+        if not self.images.is_dir():
+            return 0
+        deleted = 0
+        for day in [d for d in self.images.iterdir() if d.is_dir() and _DAY.match(d.name)]:
+            for file in day.iterdir():
+                if _FRAME.match(file.name) and file.relative_to(self.root).as_posix() not in labelled:
+                    file.unlink()
+                    deleted += 1
+            self._tidy(day)
+        return deleted
+
     @staticmethod
     def _tidy(day: Path) -> None:
         """Remove burst JSON files whose frames are all gone, then the folder if it is empty."""

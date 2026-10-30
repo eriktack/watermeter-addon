@@ -94,6 +94,7 @@ ROUTES = [
     ("POST", "/api/set_value", live.api_set_value),
     ("GET", "/api/image", log.api_image),
     ("POST", "/labels", labels.save_handler),
+    ("POST", "/log", log.clear_handler),
 ]
 
 

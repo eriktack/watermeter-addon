@@ -84,35 +84,58 @@ class Field:
     lo: float | None = None
     hi: float | None = None
     choices: tuple[str, ...] = ()
+    choice_labels: tuple[str, ...] = ()   # shown instead of the choices, same order
     help: str = ""
 
 
 FIELDS: tuple[Field, ...] = (
-    Field("capture", "interval_s", "Capture interval (s)", "int", 10, 3600),
-    Field("capture", "frames", "Frames per capture", "int", 1, 9, help="voted per digit"),
-    Field("capture", "settle_s", "Wait after light on (s)", "float", 0, 10),
-    Field("capture", "brightness", "LED brightness (0–1)", "float", 0.01, 1),
-    Field("recognition", "model", "Digit model", "model"),
-    Field("recognition", "enhance_contrast", "Enhance contrast", "bool", help="local contrast on each digit crop"),
-    Field("recognition", "min_digit_confidence", "Min digit confidence", "float", 0, 1,
-          help="below this a digit is unknown"),
-    Field("recognition", "min_mark_score", "Min alignment score", "float", 0, 1),
-    Field("validation", "direction", "Direction", "choice", choices=("up", "both"),
-          help="up: never accept a lower value"),
-    Field("validation", "max_rate_lph", "Max flow (l/h)", "int", 1, 100000,
-          help="a faster rise waits for confirming readings"),
-    Field("validation", "rate_slack_l", "Rate slack (l)", "int", 0, 1000),
-    Field("validation", "confirm_readings", "Readings to confirm a jump", "int", 1, 20),
-    Field("validation", "max_jump_l", "Max jump (l)", "int", 0, 10_000_000,
-          help="above what the max flow allows in the time since the last accepted reading; more is invalid, "
-               "never confirmed; 0 = no limit"),
-    Field("validation", "min_confidence", "Min reading confidence", "float", 0, 1),
-    Field("validation", "reject_patterns", "Reject patterns", "patterns",
-          help="one per line, * = any digit, e.g. 000400.000"),
-    Field("validation", "flow_check", "Flow cross-check", "bool"),
-    Field("validation", "flow_check_min_increase_l", "Flow check: min rise (l)", "int", 0, 1000),
-    Field("retention", "accepted_days", "Keep accepted (days)", "int", 1, 365),
-    Field("retention", "rejected_days", "Keep rejected (days)", "int", 1, 365),
+    Field("capture", "interval_s", "Time between readings (s)", "int", 10, 3600,
+          help="How often a picture is taken and read."),
+    Field("capture", "frames", "Pictures per reading", "int", 1, 9,
+          help="Every digit is read on each picture and the majority wins. More pictures: fewer misreads, but slower."),
+    Field("capture", "settle_s", "Light-on delay (s)", "float", 0, 10,
+          help="How long to wait after the light goes on before the first picture, so the camera can adjust."),
+    Field("capture", "brightness", "Light brightness (0.01–1)", "float", 0.01, 1,
+          help="1 is full brightness. Turn it down if the display shows glare."),
+    Field("recognition", "model", "Digit model", "model",
+          help="The program that reads each digit. Try another one if digits are often misread."),
+    Field("recognition", "enhance_contrast", "Boost contrast", "bool",
+          help="Makes the dark digits stand out from the display before they are read. Usually better on; "
+               "the crop preview on the Regions page shows the digits the way the model gets them."),
+    Field("recognition", "min_digit_confidence", "Digit certainty needed (0–1)", "float", 0, 1,
+          help="A digit the model is less sure of than this counts as unreadable and shows as ?."),
+    Field("recognition", "min_mark_score", "Alignment match needed (0–1)", "float", 0, 1,
+          help="How closely the two alignment marks must match the reference picture. If readings fail with "
+               "\"alignment\", redraw the marks or lower this a little."),
+    Field("validation", "direction", "Volume may go down", "choice", choices=("up", "both"),
+          choice_labels=("no (normal)", "yes"),
+          help="A water meter only counts up, so a lower reading is a misread and is rejected. Choose yes only "
+               "for a meter that can run backwards."),
+    Field("validation", "max_rate_lph", "Highest real flow (l/h)", "int", 1, 100000,
+          help="The most water the house can use in an hour (5000 = 5 m³/h, the meter's maximum). If the volume "
+               "rose faster than this since the last good reading, the next readings must confirm it first."),
+    Field("validation", "rate_slack_l", "Rounding margin (l)", "int", 0, 1000,
+          help="Litres always allowed on top of the highest flow, for the rounding of the last digit."),
+    Field("validation", "confirm_readings", "Readings to confirm a fast rise", "int", 1, 20,
+          help="How many readings in a row must agree before a rise faster than the highest flow is believed."),
+    Field("validation", "max_jump_l", "Rise that is always a misread (l)", "int", 0, 10_000_000,
+          help="A reading this many litres above what the highest flow allows since the last good reading is "
+               "rejected, even if the next readings agree. Only \"Set current value\" gets past it. 0 = off; "
+               "1000 is a good start."),
+    Field("validation", "min_confidence", "Reading certainty needed (0–1)", "float", 0, 1,
+          help="A reading is only used if its least certain digit is at least this sure."),
+    Field("validation", "reject_patterns", "Known misreads", "patterns",
+          help="Readings that are always wrong, one per line; * stands for any digit. 000400.000 is a known "
+               "glitch of these displays."),
+    Field("validation", "flow_check", "Check against the flow display", "bool",
+          help="Reject a reading if the volume went up while the meter's own flow display (the second line) "
+               "showed 0 both now and last time. Needs the flow line on the Regions page."),
+    Field("validation", "flow_check_min_increase_l", "Flow check: smallest rise checked (l)", "int", 0, 1000,
+          help="Smaller rises are not checked: the volume can move a little while the flow display still shows 0."),
+    Field("retention", "accepted_days", "Keep pictures of good readings (days)", "int", 1, 365,
+          help="Labelled pictures are always kept."),
+    Field("retention", "rejected_days", "Keep pictures of rejected readings (days)", "int", 1, 365,
+          help="Kept longer, so you can see what went wrong."),
 )
 PATTERN = re.compile(r"^[0-9*.]+$")
 
@@ -131,7 +154,7 @@ def _check(f: Field, value: Any) -> Any:
     if f.kind == "bool" and not isinstance(value, bool):
         raise ValueError(f"{f.label}: true or false")
     if f.kind == "choice" and value not in f.choices:
-        raise ValueError(f"{f.label}: one of {', '.join(f.choices)}")
+        raise ValueError(f"{f.label}: one of {', '.join(f.choice_labels or f.choices)}")
     if f.kind == "model" and (not isinstance(value, str) or not value.strip() or ".." in value):
         raise ValueError(f"{f.label}: a model file below the models folder")
     if f.kind == "patterns":

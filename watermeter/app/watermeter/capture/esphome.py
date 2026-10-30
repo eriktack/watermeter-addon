@@ -16,7 +16,8 @@ from ..settings import Options
 
 log = logging.getLogger(__name__)
 
-IMAGE_TIMEOUT_S = 10.0       # wait for one image
+IMAGE_TIMEOUT_S = 5.0        # wait for one image, then ask again
+IMAGE_TRIES = 3              # the camera sends nothing for a frame it failed to take (2026-10-30: often)
 # The camera driver fills its buffer as soon as the previous image is taken, and the camera is idle between bursts:
 # the first image of a burst was shot at the end of the previous one (often in the dark). It is thrown away.
 DISCARD_FRAMES = 1
@@ -92,14 +93,17 @@ class CameraClient:
                 self._waiting.set_result(bytes(state.data))
 
     async def _image(self) -> bytes:
-        self._waiting = asyncio.get_running_loop().create_future()
-        self._client.request_single_image()
-        try:
-            return await asyncio.wait_for(self._waiting, IMAGE_TIMEOUT_S)
-        except asyncio.TimeoutError as e:
-            raise CameraError("the camera sent no image") from e
-        finally:
-            self._waiting = None
+        """One image; asked again up to IMAGE_TRIES times if none comes. A lost connection is not retried."""
+        for attempt in range(1, IMAGE_TRIES + 1):
+            self._waiting = asyncio.get_running_loop().create_future()
+            self._client.request_single_image()
+            try:
+                return await asyncio.wait_for(self._waiting, IMAGE_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                log.warning("no image from the camera (try %d of %d)", attempt, IMAGE_TRIES)
+            finally:
+                self._waiting = None
+        raise CameraError(f"the camera sent no image ({IMAGE_TRIES} tries)")
 
     def _light(self, on: bool, brightness: float = 1.0) -> None:
         if on:

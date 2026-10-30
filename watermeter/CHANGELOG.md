@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Capture: a missing camera image is asked for again (up to 3 times) instead of failing the capture
+
 ## 0.2.0
 
 - Settings page in the add-on: capture, recognition and validation settings apply at once without a restart (the Configuration tab keeps only the connection). New max jump rule. Set current value on the Live page

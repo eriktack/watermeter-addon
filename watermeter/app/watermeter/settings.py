@@ -112,15 +112,17 @@ FIELDS: tuple[Field, ...] = (
           help="A water meter only counts up, so a lower reading is a misread and is rejected. Choose yes only "
                "for a meter that can run backwards."),
     Field("validation", "max_rate_lph", "Highest real flow (l/h)", "int", 1, 100000,
-          help="The most water the house can use in an hour (5000 = 5 m³/h, the meter's maximum). If the volume "
-               "rose faster than this since the last good reading, the next readings must confirm it first."),
+          help="The most water the house really uses in an hour; 5000 = 5 m³/h is the meter's maximum, a household "
+               "rarely goes above 1500–2000. If the volume rose faster than this since the last good reading, the "
+               "next readings must confirm it first. Lower is stricter."),
     Field("validation", "rate_slack_l", "Rounding margin (l)", "int", 0, 1000,
           help="Litres always allowed on top of the highest flow, for the rounding of the last digit."),
     Field("validation", "confirm_readings", "Readings to confirm a fast rise", "int", 1, 20,
           help="How many readings in a row must agree before a rise faster than the highest flow is believed."),
     Field("validation", "max_jump_l", "Rise that is always a misread (l)", "int", 0, 10_000_000,
-          help="A reading this many litres above what the highest flow allows since the last good reading is "
-               "rejected, even if the next readings agree. Only \"Set current value\" gets past it. 0 = off; "
+          help="Counted on top of what the highest flow allows since the last good reading, so time offline is no "
+               "problem (a week at 2000 l/h allows 336 m³ before this limit starts). A reading further above is "
+               "rejected, even if the next readings agree; only \"Set current value\" gets past it. 0 = off; "
                "1000 is a good start."),
     Field("validation", "min_confidence", "Reading certainty needed (0–1)", "float", 0, 1,
           help="A reading is only used if its least certain digit is at least this sure."),

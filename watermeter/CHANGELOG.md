@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Settings: clearer explanations of highest real flow and the misread limit
+
 ## 0.2.2
 
 - Settings: plain-language names and an explanation for every setting. Log: Clear log button (labelled pictures are kept)

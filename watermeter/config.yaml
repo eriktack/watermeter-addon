@@ -1,7 +1,7 @@
 name: Watermeter
 # The version below is a placeholder: the real one is "version" in pyproject.toml, written in when the add-on is
 # published (tools/publish_addon.py, tools/release.py). Never edit it.
-version: "0.2.2"
+version: "0.2.3"
 slug: watermeter
 description: Reads a water meter with an ESP32-CAM, checks the reading and publishes it to Home Assistant over MQTT
 url: https://github.com/eriktack/watermeter-addon

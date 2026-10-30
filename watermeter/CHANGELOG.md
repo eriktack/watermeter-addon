@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Regions: digits and decimals as groups that move and resize together, separate counts for the flow line, rotation offset
+
 ## 0.1.4
 
 - Capture: the first image of a burst is thrown away (it was the stale buffered frame, sometimes black)

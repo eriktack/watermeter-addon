@@ -18,7 +18,7 @@ from aiohttp import web
 
 from ...storage import ImageStore
 from ...vision.align import align
-from ...vision.images import crop, decode_jpeg
+from ...vision.images import crop, decode_jpeg, rotate
 from ...vision.regions_io import (load_reference_bytes, load_regions, regions_from_dict, regions_to_dict,
                                   save_reference, save_regions)
 
@@ -34,16 +34,19 @@ BODY = """\
       <label>Draw <select id="mode">
         <option value="mark0">alignment mark 1</option>
         <option value="mark1">alignment mark 2</option>
-        <option value="volume" selected>volume line (all digits)</option>
-        <option value="flow">flow line (all digits)</option>
+        <option value="volume.whole" selected>volume: whole digits</option>
+        <option value="volume.decimals">volume: decimals</option>
+        <option value="flow.whole">flow: whole digits</option>
+        <option value="flow.decimals">flow: decimals</option>
       </select></label>
-      <label>digits <input id="count" type="number" min="1" max="12" value="9"></label>
-      <label>decimals <input id="decimals" type="number" min="0" max="12" value="3"></label>
-      <button id="remove-flow" type="button">Remove flow line</button>
+      <label>digits <input id="count" type="number" min="1" max="12" value="6"></label>
+      <label>rotation ° <input id="rotation" type="number" min="-45" max="45" step="0.1" value="0.0" style="width:5em"></label>
+      <button id="remove-group" type="button">Remove this group</button>
     </div>
-    <p class="muted">Drag a rectangle on the image. A line is drawn around all its digits and split into equal boxes;
-    adjust single boxes in the table. Marks are distinctive fixed spots (a logo, printed text), used to align every
-    image.</p>
+    <p class="muted">Drag a rectangle around a group of digits: it is split into equal boxes. Change a group's position or
+    size (all its digits together) in the table. Turn the image (counterclockwise is positive) until the digits are
+    level; every camera image is turned the same way. Marks are distinctive fixed spots (a logo, printed text), used
+    to align every image.</p>
     <canvas id="canvas"></canvas>
     <table id="boxes"></table>
     <div class="toolbar">
@@ -147,12 +150,12 @@ async def api_crop(request: web.Request) -> web.Response:
         box = line.digits[index]
     except (ValueError, IndexError, AttributeError):
         raise web.HTTPNotFound()
-    image = decode_jpeg(reference)
+    image = rotate(decode_jpeg(reference), regions.rotation_deg)
     if request.query.get("source") == "latest":
         frame = _latest_frame(data_dir)
         if frame is None:
             raise web.HTTPNotFound()
-        image = align(frame, image, regions, context_min_score(request)).image
+        image = align(frame, decode_jpeg(reference), regions, context_min_score(request)).image
         if image is None:
             raise web.HTTPNotFound()  # alignment failed: the page shows the scores from api/alignment
     (piece,) = crop(image, [box])

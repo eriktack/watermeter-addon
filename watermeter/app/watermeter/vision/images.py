@@ -19,6 +19,15 @@ def decode_jpeg(jpeg: bytes) -> Image:
     return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
 
+def rotate(image: Image, degrees: float) -> Image:
+    """Turn the image about its centre (counterclockwise for positive degrees), same size, edges repeated."""
+    if not degrees:
+        return image
+    height, width = image.shape[:2]
+    matrix = cv2.getRotationMatrix2D((width / 2, height / 2), degrees, 1.0)
+    return cv2.warpAffine(image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
+
 def crop(image: Image, boxes: Sequence[Box]) -> list[Image]:
     """Cut the boxes out of an image that is already in reference coordinates. Boxes are clipped to the image;
     a box fully outside gives an empty (0-size) array."""

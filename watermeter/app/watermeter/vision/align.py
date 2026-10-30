@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from ..models import Box, Image, Regions
+from .images import rotate
 
 SEARCH_PAD_MIN = 40  # pixels searched around the reference box on each side, at least (or the box's longer side)
 
@@ -49,10 +50,12 @@ def _find(gray: np.ndarray, template: np.ndarray, box: Box) -> tuple[float, tupl
 def align(image: Image, reference: Image, regions: Regions, min_score: float) -> AlignResult:
     """Find each mark of `regions` (cut from `reference`) in `image` by template matching near its reference
     position, estimate shift + rotation from the mark positions, and warp `image` into reference coordinates.
-    Any mark below `min_score` → image None."""
+    Any mark below `min_score` → image None. Both images are first turned by `regions.rotation_deg` (the regions are
+    drawn on the turned reference)."""
     ref_h, ref_w = reference.shape[:2]
     if image.shape[:2] != (ref_h, ref_w):
         image = cv2.resize(image, (ref_w, ref_h), interpolation=cv2.INTER_LINEAR)
+    image, reference = rotate(image, regions.rotation_deg), rotate(reference, regions.rotation_deg)
     if not regions.marks:
         return AlignResult(image, {}, (0.0, 0.0), 0.0)
 

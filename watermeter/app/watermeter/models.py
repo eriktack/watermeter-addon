@@ -58,6 +58,7 @@ class Regions:
     marks: tuple[Mark, ...]
     volume: Line                  # 9 digits, 3 decimals on the Qalcosonic W1
     flow: Line | None = None      # second display line, m³/h
+    rotation_deg: float = 0.0     # every frame and the reference are turned by this first (counterclockwise > 0)
 
 
 # ---- recognition ----------------------------------------------------------------------------------------------

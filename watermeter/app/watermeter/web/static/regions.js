@@ -1,8 +1,11 @@
 // Regions page (C2). State = the regions JSON of api/regions; all URLs are relative (ingress).
+// A line (volume, flow) is two groups, whole digits and decimals: one box each, split into `count` equal digits.
 (() => {
   const $ = id => document.getElementById(id);
   const COLORS = { mark: '#d1832a', volume: '#1a9f37', flow: '#2f81f7' };
-  const state = { ref: null, marks: [null, null], names: ['logo', 'text'], volume: null, flow: null, selected: null };
+  const LINES = ['volume', 'flow'], GROUPS = ['whole', 'decimals'];
+  const DEFAULT_COUNT = { whole: 6, decimals: 3 };
+  const state = { ref: null, rotation: 0, marks: [null, null], names: ['logo', 'text'], volume: null, flow: null, selected: null };
   const canvas = $('canvas'), ctx = canvas.getContext('2d');
   let image = null, scale = 1, drag = null, dirty = false;
 
@@ -14,33 +17,38 @@
   };
   const say = (text, bad) => { $('status').textContent = text; $('status').className = bad ? 'bad' : 'muted'; };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const changed = () => { dirty = true; draw(); renderTable(); renderCrops(); };
 
-  // ---- boxes: [{group, key, label, box:[x,y,w,h]}] in reference pixels -------------------------------------
-  function allBoxes() {
+  function split([x, y, w, h], count) {
+    const edges = Array.from({ length: count + 1 }, (_, i) => x + Math.round(w * i / count));
+    return Array.from({ length: count }, (_, i) => [edges[i], y, edges[i + 1] - edges[i], h]);
+  }
+
+  // ---- items: the marks and the groups, each with a box [x,y,w,h] in (turned) reference pixels ----------------
+  function items() {
     const out = [];
-    state.marks.forEach((m, i) => m && out.push({ group: 'mark', index: i, label: 'mark ' + (i + 1), box: m }));
-    if (state.volume) state.volume.digits.forEach((b, i) => out.push({ group: 'volume', index: i, label: 'volume ' + (i + 1), box: b }));
-    if (state.flow) state.flow.digits.forEach((b, i) => out.push({ group: 'flow', index: i, label: 'flow ' + (i + 1), box: b }));
+    state.marks.forEach((m, i) => m && out.push({ kind: 'mark', key: 'mark' + i, index: i, label: 'mark ' + (i + 1), box: m }));
+    for (const line of LINES) for (const g of GROUPS) {
+      const group = state[line] && state[line][g];
+      if (group) out.push({ kind: line, key: line + '.' + g, group, label: `${line} ${g === 'whole' ? 'digits' : 'decimals'}`, box: group.box });
+    }
     return out;
   }
-  const same = (a, b) => a && b && a.group === b.group && a.index === b.index;
 
   function draw() {
     if (!image) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    for (const item of allBoxes()) {
-      const [x, y, w, h] = item.box.map(v => v * scale);
-      ctx.lineWidth = same(item, state.selected) ? 3 : 1.5;
-      ctx.strokeStyle = COLORS[item.group];
-      ctx.strokeRect(x, y, w, h);
-      if (item.group !== 'mark' && (item.index === 0 || same(item, state.selected))) {
-        ctx.fillStyle = COLORS[item.group]; ctx.font = '12px system-ui';
-        ctx.fillText(item.group + ' ' + (item.index + 1), x, Math.max(y - 3, 10));
-      }
-      if (item.group !== 'mark' && state[item.group].digits.length - item.index === state[item.group].decimals) {
-        ctx.fillStyle = COLORS[item.group]; ctx.fillRect(x - 2, y + h - 3, 4, 4);   // the decimal point sits before this digit
-      }
+    ctx.save();   // turned about the centre as the server does (OpenCV: counterclockwise for positive degrees)
+    ctx.translate(canvas.width / 2, canvas.height / 2); ctx.rotate(-state.rotation * Math.PI / 180);
+    ctx.drawImage(image, -canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
+    ctx.restore();
+    for (const item of items()) {
+      ctx.strokeStyle = ctx.fillStyle = COLORS[item.kind];
+      ctx.lineWidth = state.selected === item.key ? 3 : 1.5;
+      const boxes = item.kind === 'mark' ? [item.box] : split(item.box, item.group.count);
+      for (const b of boxes) { const [x, y, w, h] = b.map(v => v * scale); ctx.strokeRect(x, y, w, h); }
+      const [x, y] = item.box.map(v => v * scale);
+      ctx.font = '12px system-ui'; ctx.fillText(item.label, x, Math.max(y - 3, 10));
     }
     if (drag) {
       ctx.setLineDash([5, 4]); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
@@ -50,32 +58,31 @@
 
   function renderTable() {
     const t = $('boxes');
-    t.innerHTML = '<tr><th>Box</th><th>x</th><th>y</th><th>width</th><th>height</th><th>name</th></tr>';
-    for (const item of allBoxes()) {
+    t.innerHTML = '<tr><th></th><th>x</th><th>y</th><th>width</th><th>height</th><th>digits / name</th></tr>';
+    for (const item of items()) {
       const tr = document.createElement('tr');
-      if (same(item, state.selected)) tr.style.background = 'rgba(127,127,127,.18)';
+      if (state.selected === item.key) tr.style.background = 'rgba(127,127,127,.18)';
       tr.innerHTML = '<td></td>' + [0, 1, 2, 3].map(i => `<td><input type="number" data-i="${i}" style="width:5em"></td>`).join('') + '<td></td>';
       tr.cells[0].textContent = item.label;
       tr.cells[0].style.cursor = 'pointer';
-      tr.cells[0].onclick = () => { state.selected = item; draw(); renderTable(); };
+      tr.cells[0].onclick = () => { state.selected = item.key; draw(); renderTable(); };
       tr.querySelectorAll('input').forEach(inp => {
-        inp.value = item.box[inp.dataset.i];
-        inp.onchange = () => { item.box[inp.dataset.i] = Math.round(Number(inp.value)); dirty = true; draw(); };
-        inp.onfocus = () => { state.selected = item; draw(); };
+        const i = Number(inp.dataset.i);
+        inp.value = item.box[i];
+        inp.onchange = () => { item.box[i] = Math.max(i < 2 ? 0 : 1, Math.round(Number(inp.value)) || 0); state.selected = item.key; changed(); };
+        inp.onfocus = () => { state.selected = item.key; draw(); };
       });
-      if (item.group === 'mark') {
-        const name = document.createElement('input');
-        name.value = state.names[item.index]; name.style.width = '7em';
-        name.onchange = () => { state.names[item.index] = name.value.trim() || state.names[item.index]; dirty = true; };
-        tr.cells[5].appendChild(name);
+      const extra = document.createElement('input');
+      if (item.kind === 'mark') {
+        extra.value = state.names[item.index]; extra.style.width = '7em';
+        extra.onchange = () => { state.names[item.index] = extra.value.trim() || state.names[item.index]; dirty = true; };
+      } else {
+        extra.type = 'number'; extra.min = 1; extra.max = 12; extra.value = item.group.count; extra.style.width = '4em';
+        extra.onchange = () => { item.group.count = clamp(Math.round(Number(extra.value)) || 1, 1, 12); changed(); };
       }
+      tr.cells[5].appendChild(extra);
       t.appendChild(tr);
     }
-  }
-
-  function split(x, y, w, h, count) {
-    const edges = Array.from({ length: count + 1 }, (_, i) => x + Math.round(w * i / count));
-    return Array.from({ length: count }, (_, i) => [edges[i], y, edges[i + 1] - edges[i], h]);
   }
 
   function finishDrag(d) {
@@ -85,11 +92,12 @@
     const mode = $('mode').value;
     if (mode.startsWith('mark')) state.marks[Number(mode.slice(4))] = [x, y, w, h];
     else {
-      const count = clamp(Math.round(Number($('count').value)) || 1, 1, 12);
-      const decimals = clamp(Math.round(Number($('decimals').value)) || 0, 0, count);
-      state[mode] = { digits: split(x, y, w, h, count), decimals };
+      const [line, g] = mode.split('.');
+      state[line] = state[line] || { whole: null, decimals: null };
+      state[line][g] = { box: [x, y, w, h], count: clamp(Math.round(Number($('count').value)) || 1, 1, 12) };
     }
-    dirty = true; state.selected = null; draw(); renderTable(); renderCrops();
+    state.selected = mode;
+    changed();
   }
 
   function pos(e) {
@@ -105,16 +113,17 @@
     const box = $('crops'); box.innerHTML = '';
     if (dirty) { box.innerHTML = '<p class="muted">Save the regions to see the crops.</p>'; return; }
     const t = Date.now(), source = $('source').value;
-    for (const g of ['volume', 'flow']) {
-      if (!state[g]) continue;
+    for (const line of LINES) {
+      if (!state[line] || !state[line].whole) continue;
+      const count = state[line].whole.count + (state[line].decimals ? state[line].decimals.count : 0);
       const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;margin:6px 0;align-items:flex-end';
-      state[g].digits.forEach((_, i) => {
+      for (let i = 0; i < count; i++) {
         const img = document.createElement('img');
-        img.src = `api/crop/${g}/${i}.png?source=${source}&t=${t}`; img.alt = g + ' ' + (i + 1);
+        img.src = `api/crop/${line}/${i}.png?source=${source}&t=${t}`; img.alt = line + ' ' + (i + 1);
         img.style.cssText = 'height:64px;width:auto;border:1px solid var(--line)';
         img.onerror = () => { img.alt = 'n/a'; };
         row.appendChild(img);
-      });
+      }
       box.appendChild(row);
     }
     if (source === 'latest') alignment();
@@ -137,6 +146,14 @@
     });
   }
 
+  function syncCount() {   // the digits field shows the count of the group about to be drawn
+    const mode = $('mode').value;
+    if (mode.startsWith('mark')) return;
+    const [line, g] = mode.split('.');
+    const group = state[line] && state[line][g];
+    $('count').value = group ? group.count : DEFAULT_COUNT[g];
+  }
+
   async function load() {
     const info = await json('api/regions');
     $('no-reference').hidden = !!info.reference; $('editor').hidden = !info.reference;
@@ -150,30 +167,43 @@
     if (r && r.reference_width === info.reference.width && r.reference_height === info.reference.height) {
       state.marks = [0, 1].map(i => r.marks[i] ? r.marks[i].box : null);
       state.names = [0, 1].map(i => r.marks[i] ? r.marks[i].name : ['logo', 'text'][i]);
-      state.volume = r.volume; state.flow = r.flow;
-    } else { state.marks = [null, null]; state.volume = null; state.flow = null; }
+      state.volume = r.volume; state.flow = r.flow; state.rotation = r.rotation_deg || 0;
+    } else { state.marks = [null, null]; state.volume = null; state.flow = null; state.rotation = 0; }
+    $('rotation').value = state.rotation.toFixed(1);
     dirty = false; state.selected = null;
-    if (state.volume) { $('count').value = state.volume.digits.length; $('decimals').value = state.volume.decimals; }
-    draw(); renderTable(); renderCrops();
+    syncCount(); draw(); renderTable(); renderCrops();
   }
 
   async function save() {
     const marks = state.marks.map((box, i) => box && { name: state.names[i], box }).filter(Boolean);
-    if (!state.volume) { say('Draw the volume line first.', true); return; }
+    const line = l => l ? { whole: l.whole, decimals: l.decimals } : null;
+    if (!state.volume || !state.volume.whole) { say('Draw the volume digits first.', true); return; }
+    if (state.flow && !state.flow.whole) { say('Draw the flow digits too, or remove its decimals.', true); return; }
     try {
       await json('api/regions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        reference_width: state.ref.width, reference_height: state.ref.height, marks, volume: state.volume, flow: state.flow }) });
+        reference_width: state.ref.width, reference_height: state.ref.height, rotation_deg: state.rotation,
+        marks, volume: line(state.volume), flow: line(state.flow) }) });
       dirty = false; say('Saved.'); renderCrops();
     } catch (e) { say(e.message, true); }
   }
 
   $('save').onclick = save;
   $('source').onchange = renderCrops;
-  $('mode').onchange = () => {
-    const g = $('mode').value;
-    if (state[g] && state[g].digits) { $('count').value = state[g].digits.length; $('decimals').value = state[g].decimals; }
+  $('mode').onchange = syncCount;
+  $('rotation').onchange = () => {
+    state.rotation = clamp(Math.round(Number($('rotation').value) * 10) / 10 || 0, -45, 45);
+    $('rotation').value = state.rotation.toFixed(1); changed();
   };
-  $('remove-flow').onclick = () => { state.flow = null; dirty = true; draw(); renderTable(); renderCrops(); };
+  $('remove-group').onclick = () => {
+    const mode = $('mode').value;
+    if (mode.startsWith('mark')) state.marks[Number(mode.slice(4))] = null;
+    else {
+      const [line, g] = mode.split('.');
+      if (state[line]) state[line][g] = null;
+      if (state[line] && !state[line].whole && !state[line].decimals) state[line] = null;
+    }
+    changed();
+  };
   $('use-latest').onclick = async () => {
     if (state.volume && !confirm('A new reference image makes the saved boxes invalid. Continue?')) return;
     try { await json('api/reference/latest', { method: 'POST' }); await load(); say('Reference updated.'); }

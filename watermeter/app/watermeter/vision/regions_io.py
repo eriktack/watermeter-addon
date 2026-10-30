@@ -2,10 +2,14 @@
 
 Files in the data folder: `regions.json` (the `Regions`, JSON below) and `reference.jpg` (the image they are drawn on).
 
-    {"reference_width": 640, "reference_height": 480,
+    {"reference_width": 640, "reference_height": 480, "rotation_deg": -1.5,
      "marks": [{"name": "logo", "box": [x, y, w, h]}, ...],
-     "volume": {"digits": [[x, y, w, h], ...], "decimals": 3},
-     "flow": null | {"digits": [...], "decimals": 3}}
+     "volume": {"whole": {"box": [x, y, w, h], "count": 6}, "decimals": null | {"box": [...], "count": 3}},
+     "flow": null | {"whole": ..., "decimals": ...}}
+
+A line is two groups, the whole digits and the decimals; each group's box is split into `count` equal digit boxes.
+The boxes are in the coordinates of the reference turned by `rotation_deg`. The older form of a line
+(`{"digits": [[x, y, w, h], ...], "decimals": 3}`) is still read.
 """
 from __future__ import annotations
 
@@ -18,6 +22,8 @@ from ..models import Box, Line, Mark, Regions
 REGIONS_FILE = "regions.json"
 REFERENCE_FILE = "reference.jpg"
 MAX_MARKS = 2
+MAX_DIGITS = 12
+MAX_ROTATION_DEG = 45
 
 
 def _box(value: Any, width: int, height: int, what: str) -> Box:
@@ -32,15 +38,31 @@ def _box(value: Any, width: int, height: int, what: str) -> Box:
     return Box(x, y, w, h)
 
 
+def _group(value: Any, width: int, height: int, what: str) -> list[Box]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{what}: missing")
+    count = value.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= MAX_DIGITS:
+        raise ValueError(f"{what}: the digit count must be between 1 and {MAX_DIGITS}")
+    box = _box(value.get("box"), width, height, what)
+    if box.w < count:
+        raise ValueError(f"{what}: narrower than one pixel per digit")
+    return split_line(box.x, box.y, box.w, box.h, count)
+
+
 def _line(value: Any, width: int, height: int, what: str) -> Line:
     if not isinstance(value, dict):
         raise ValueError(f"{what}: missing")
-    digits = value.get("digits")
+    if "digits" not in value:
+        whole = _group(value.get("whole"), width, height, f"{what} digits")
+        fraction = _group(value["decimals"], width, height, f"{what} decimals") if value.get("decimals") else []
+        return Line(tuple(whole + fraction), len(fraction))
+    digits = value.get("digits")   # the older form: a list of boxes
     if not isinstance(digits, list) or not digits:
         raise ValueError(f"{what}: needs at least one digit box")
     decimals = value.get("decimals", 0)
-    if not isinstance(decimals, int) or isinstance(decimals, bool) or not 0 <= decimals <= len(digits):
-        raise ValueError(f"{what}: decimals must be between 0 and the number of digits")
+    if not isinstance(decimals, int) or isinstance(decimals, bool) or not 0 <= decimals < len(digits):
+        raise ValueError(f"{what}: decimals must be fewer than the digits")
     return Line(tuple(_box(b, width, height, f"{what} digit {i + 1}") for i, b in enumerate(digits)), decimals)
 
 
@@ -63,19 +85,33 @@ def regions_from_dict(data: Any) -> Regions:
             raise ValueError(f"two marks are named {name!r}")
         names.add(name)
         marks.append(Mark(name.strip(), _box(m.get("box"), width, height, f"mark {name}")))
+    rotation = data.get("rotation_deg", 0.0)
+    if not isinstance(rotation, (int, float)) or isinstance(rotation, bool) or abs(rotation) > MAX_ROTATION_DEG:
+        raise ValueError(f"rotation must be a number between -{MAX_ROTATION_DEG} and {MAX_ROTATION_DEG} degrees")
     flow = data.get("flow")
     return Regions(width, height, tuple(marks), _line(data.get("volume"), width, height, "volume"),
-                   _line(flow, width, height, "flow") if flow is not None else None)
+                   _line(flow, width, height, "flow") if flow is not None else None, round(float(rotation), 1))
+
+
+def _group_dict(boxes: tuple[Box, ...]) -> dict | None:
+    """The group's outline (the boxes' bounds) and its count; None for no boxes."""
+    if not boxes:
+        return None
+    x0, y0 = min(b.x for b in boxes), min(b.y for b in boxes)
+    x1, y1 = max(b.x + b.w for b in boxes), max(b.y + b.h for b in boxes)
+    return {"box": [x0, y0, x1 - x0, y1 - y0], "count": len(boxes)}
 
 
 def _line_dict(line: Line) -> dict:
-    return {"digits": [[b.x, b.y, b.w, b.h] for b in line.digits], "decimals": line.decimals}
+    whole = len(line.digits) - line.decimals
+    return {"whole": _group_dict(line.digits[:whole]), "decimals": _group_dict(line.digits[whole:])}
 
 
 def regions_to_dict(regions: Regions) -> dict:
     return {
         "reference_width": regions.reference_width,
         "reference_height": regions.reference_height,
+        "rotation_deg": regions.rotation_deg,
         "marks": [{"name": m.name, "box": [m.box.x, m.box.y, m.box.w, m.box.h]} for m in regions.marks],
         "volume": _line_dict(regions.volume),
         "flow": _line_dict(regions.flow) if regions.flow else None,

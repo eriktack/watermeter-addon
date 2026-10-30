@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Settings page in the add-on: capture, recognition and validation settings apply at once without a restart (the Configuration tab keeps only the connection). New max jump rule. Set current value on the Live page
+
 ## 0.1.9
 
 - Regions: digit width per digit, gap between digits, y counted from the bottom, live update while an arrow is held. Log and Live: local times, the raw flow next to the volume

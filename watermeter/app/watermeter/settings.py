@@ -1,14 +1,16 @@
-"""All settings with their defaults.
+"""All settings with their defaults. Two sources (2026-10-30, replaces the single-source decision of 2026-10-24):
 
-One source (simplified 2026-10-24, task S2): `/data/options.json`, written by Home Assistant from the add-on's
-Configuration tab, which renders a form from `addon/watermeter/config.yaml`. Read-only for the add-on; changing it in
-HA restarts the add-on. Mapped to the flat `Options`; `settings_from_options` builds the grouped `Settings` the rest
-of the code uses. `tests/test_addon_options.py` keeps `Options`, the defaults below and `config.yaml` in step.
+- `Options`: the connection, from `/data/options.json`, written by Home Assistant from the add-on's Configuration tab
+  (`addon/watermeter/config.yaml`; changing it restarts the add-on). `tests/test_addon_options.py` keeps the two in step.
+- `Settings`: what is tuned while watching the results (capture, retention, recognition, validation), in
+  `/data/settings.json`, edited on the add-on's Settings page and applied at once. `FIELDS` describes and limits every
+  one of them; `settings_from_dict` checks a dict against it.
 """
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, fields, is_dataclass
+import re
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, TypeVar, get_type_hints
 
@@ -44,6 +46,7 @@ class ValidationSettings:
     max_rate_lph: int = 5000         # 5 m³/h = the meter's Q4 overload flow
     rate_slack_l: int = 1            # always allowed on top of max rate × time (last-digit resolution)
     confirm_readings: int = 3        # readings in a row that must agree before a too-fast jump is accepted
+    max_jump_l: int = 0              # beyond the max flow × time by more than this: never accepted (0 = no limit)
     min_confidence: float = 0.5      # a reading below this (minimum digit confidence) is unreadable
     flow_check: bool = False         # flow cross-check, off until real data shows it helps
     flow_check_min_increase_l: int = 5
@@ -59,7 +62,7 @@ class Settings:
 
 @dataclass
 class Options:
-    """The add-on's Configuration tab in HA (see `addon/watermeter/config.yaml`, B1)."""
+    """The add-on's Configuration tab in HA (see `addon/watermeter/config.yaml`, B1): the connection only."""
     esphome_host: str = ""
     esphome_port: int = 6053
     esphome_encryption_key: str = ""
@@ -68,55 +71,110 @@ class Options:
     mqtt_username: str = ""
     mqtt_password: str = ""
     log_level: str = "info"
-    # capture
-    capture_interval_s: int = 60
-    capture_frames: int = 3
-    capture_settle_s: float = 1.0
-    light_brightness_pct: int = 100          # Settings.capture.brightness = pct / 100
-    # retention
-    keep_accepted_days: int = 7
-    keep_rejected_days: int = 30
-    # recognition
-    model: str = "haverland/dig-class11_1701_s2.tflite"
-    enhance_contrast: bool = True
-    min_digit_confidence: float = 0.5
-    min_mark_score: float = 0.6
-    # validation
-    reject_patterns: list[str] = field(default_factory=lambda: ["000400.000"])
-    direction: str = "up"                    # "up" or "both"
-    max_rate_m3h: float = 5.0                # Settings.validation.max_rate_lph = round(m3h * 1000)
-    rate_slack_l: int = 1
-    confirm_readings: int = 3
-    min_confidence: float = 0.5
-    flow_check: bool = False
-    flow_check_min_increase_l: int = 5
 
 
-def settings_from_options(options: Options) -> Settings:
-    """The grouped Settings for the given Options (pure). Every Settings field comes from the Option of the same
-    meaning; with default Options the result equals `Settings()`. Conversions: brightness = light_brightness_pct / 100,
-    max_rate_lph = round(max_rate_m3h * 1000), reject_patterns copied (a new list), patterns stripped of spaces and
-    empty ones dropped."""
-    return Settings(
-        capture=CaptureSettings(interval_s=options.capture_interval_s, frames=options.capture_frames,
-                                settle_s=options.capture_settle_s,
-                                brightness=options.light_brightness_pct / 100),
-        retention=RetentionSettings(accepted_days=options.keep_accepted_days,
-                                    rejected_days=options.keep_rejected_days),
-        recognition=RecognitionSettings(model=options.model, enhance_contrast=options.enhance_contrast,
-                                        min_digit_confidence=options.min_digit_confidence,
-                                        min_mark_score=options.min_mark_score),
-        validation=ValidationSettings(
-            reject_patterns=[p.strip() for p in options.reject_patterns if p.strip()],
-            direction=options.direction,
-            max_rate_lph=round(options.max_rate_m3h * 1000),
-            rate_slack_l=options.rate_slack_l,
-            confirm_readings=options.confirm_readings,
-            min_confidence=options.min_confidence,
-            flow_check=options.flow_check,
-            flow_check_min_increase_l=options.flow_check_min_increase_l,
-        ),
-    )
+# ---- the tunable settings: one description for the check and the Settings page ----------------------------------
+
+@dataclass(frozen=True)
+class Field:
+    group: str                  # Settings attribute: capture, retention, recognition, validation
+    name: str
+    label: str
+    kind: str                   # int, float, bool, choice, patterns, model
+    lo: float | None = None
+    hi: float | None = None
+    choices: tuple[str, ...] = ()
+    help: str = ""
+
+
+FIELDS: tuple[Field, ...] = (
+    Field("capture", "interval_s", "Capture interval (s)", "int", 10, 3600),
+    Field("capture", "frames", "Frames per capture", "int", 1, 9, help="voted per digit"),
+    Field("capture", "settle_s", "Wait after light on (s)", "float", 0, 10),
+    Field("capture", "brightness", "LED brightness (0–1)", "float", 0.01, 1),
+    Field("recognition", "model", "Digit model", "model"),
+    Field("recognition", "enhance_contrast", "Enhance contrast", "bool", help="local contrast on each digit crop"),
+    Field("recognition", "min_digit_confidence", "Min digit confidence", "float", 0, 1,
+          help="below this a digit is unknown"),
+    Field("recognition", "min_mark_score", "Min alignment score", "float", 0, 1),
+    Field("validation", "direction", "Direction", "choice", choices=("up", "both"),
+          help="up: never accept a lower value"),
+    Field("validation", "max_rate_lph", "Max flow (l/h)", "int", 1, 100000,
+          help="a faster rise waits for confirming readings"),
+    Field("validation", "rate_slack_l", "Rate slack (l)", "int", 0, 1000),
+    Field("validation", "confirm_readings", "Readings to confirm a jump", "int", 1, 20),
+    Field("validation", "max_jump_l", "Max jump (l)", "int", 0, 10_000_000,
+          help="above what the max flow allows in the time since the last accepted reading; more is invalid, "
+               "never confirmed; 0 = no limit"),
+    Field("validation", "min_confidence", "Min reading confidence", "float", 0, 1),
+    Field("validation", "reject_patterns", "Reject patterns", "patterns",
+          help="one per line, * = any digit, e.g. 000400.000"),
+    Field("validation", "flow_check", "Flow cross-check", "bool"),
+    Field("validation", "flow_check_min_increase_l", "Flow check: min rise (l)", "int", 0, 1000),
+    Field("retention", "accepted_days", "Keep accepted (days)", "int", 1, 365),
+    Field("retention", "rejected_days", "Keep rejected (days)", "int", 1, 365),
+)
+PATTERN = re.compile(r"^[0-9*.]+$")
+
+
+def _check(f: Field, value: Any) -> Any:
+    """The value, checked against the field (ValueError with the label otherwise)."""
+    is_num = isinstance(value, (int, float)) and not isinstance(value, bool)
+    if f.kind == "int" and not (isinstance(value, int) and not isinstance(value, bool)):
+        raise ValueError(f"{f.label}: a whole number")
+    if f.kind == "float" and not is_num:
+        raise ValueError(f"{f.label}: a number")
+    if f.kind in ("int", "float") and not f.lo <= value <= f.hi:
+        raise ValueError(f"{f.label}: between {f.lo:g} and {f.hi:g}")
+    if f.kind == "float":
+        return float(value)
+    if f.kind == "bool" and not isinstance(value, bool):
+        raise ValueError(f"{f.label}: true or false")
+    if f.kind == "choice" and value not in f.choices:
+        raise ValueError(f"{f.label}: one of {', '.join(f.choices)}")
+    if f.kind == "model" and (not isinstance(value, str) or not value.strip() or ".." in value):
+        raise ValueError(f"{f.label}: a model file below the models folder")
+    if f.kind == "patterns":
+        if not isinstance(value, list) or not all(isinstance(p, str) for p in value):
+            raise ValueError(f"{f.label}: a list of patterns")
+        value = [p.strip() for p in value if p.strip()]
+        bad = [p for p in value if not PATTERN.match(p)]
+        if bad:
+            raise ValueError(f"{f.label}: only digits, * and . ({bad[0]!r})")
+    return value
+
+
+def settings_from_dict(data: Any) -> Settings:
+    """Settings from their JSON form, every value checked against `FIELDS`; missing ones keep their defaults, unknown
+    ones are ignored. Raises ValueError naming the first bad field."""
+    settings = Settings()
+    if not isinstance(data, dict):
+        raise ValueError("settings must be an object")
+    for f in FIELDS:
+        group = data.get(f.group)
+        if isinstance(group, dict) and f.name in group:
+            setattr(getattr(settings, f.group), f.name, _check(f, group[f.name]))
+    return settings
+
+
+def settings_to_dict(settings: Settings) -> dict:
+    return asdict(settings)
+
+
+def load_settings(path: Path) -> Settings:
+    """The saved settings; defaults if there is no file. A damaged file raises ValueError (the caller decides)."""
+    if not path.exists():
+        return Settings()
+    try:
+        return settings_from_dict(json.loads(path.read_text(encoding="utf-8")))
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{path.name} is not valid JSON: {e}") from e
+
+
+def save_settings(path: Path, settings: Settings) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(settings_to_dict(settings), indent=2), encoding="utf-8")
+    tmp.replace(path)
 
 
 def _from_dict(cls: type[T], data: Any) -> T:

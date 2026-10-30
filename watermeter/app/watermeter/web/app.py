@@ -18,19 +18,20 @@ from aiohttp import web
 
 from ..models import Decision, RawReading, ValidatorState
 from ..settings import Settings
-from .pages import about, labels, live, log, regions
+from .pages import about, labels, live, log, regions, settings
 
 HERE = Path(__file__).parent
 CONTEXT_KEY = web.AppKey("context", object)
 
 ACTIVE = ' class="active"'
-NAV = [("live", "Live"), ("regions", "Regions"), ("log", "Log"), ("labels", "Labels"), ("about", "About")]
+NAV = [("live", "Live"), ("regions", "Regions"), ("log", "Log"), ("labels", "Labels"), ("settings", "Settings"),
+       ("about", "About")]
 
 
 @dataclass
 class WebContext:
-    """Shared with the service loop (D6). Pages read from it. The settings come from the add-on's Configuration tab
-    (`options.json`), so the pages only show them; "set current value" goes through `set_current_value`."""
+    """Shared with the service loop (D6). Pages read from it. The Settings page saves through `apply_settings`;
+    "set current value" goes through `set_current_value`."""
     data_dir: Path
     settings: Settings
     version: str = "dev"
@@ -39,6 +40,8 @@ class WebContext:
     last_decision: Decision | None = None
     capture_now: Callable[[], Awaitable[None]] | None = None   # set by the service loop
     set_current_value: Callable[[int], None] | None = None     # litres; set by the service loop
+    apply_settings: Callable[[Settings], None] | None = None   # set by the service loop (saves and applies)
+    models: tuple[str, ...] = ()                                # model files the Settings page offers
 
 
 def context(request: web.Request) -> WebContext:
@@ -76,6 +79,8 @@ ROUTES = [
     ("GET", "/regions", regions.handler),
     ("GET", "/log", log.handler),
     ("GET", "/labels", labels.handler),
+    ("GET", "/settings", settings.handler),
+    ("POST", "/settings", settings.save_handler),
     ("GET", "/about", about.handler),
     ("GET", "/api/regions", regions.api_get_regions),
     ("POST", "/api/regions", regions.api_save_regions),
@@ -86,6 +91,7 @@ ROUTES = [
     ("GET", "/api/alignment", regions.api_alignment),
     ("GET", "/api/latest.jpg", live.api_latest),
     ("POST", "/api/capture", live.api_capture),
+    ("POST", "/api/set_value", live.api_set_value),
     ("GET", "/api/image", log.api_image),
     ("POST", "/labels", labels.save_handler),
 ]

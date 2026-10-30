@@ -17,9 +17,10 @@ Everything runs locally.
 | MQTT host / port / username / password | Leave empty to use the broker the Mosquitto add-on provides. Fill in only for another broker. |
 | Log level | `info` normally; `debug` when something does not work. |
 
-Capture, recognition and validation settings are in this same Configuration tab. Changing one restarts the add-on.
-To lower the published water volume (for example after a meter swap), send the new value in m³, such as `170.861`,
-to the "Set current value" number entity in Home Assistant.
+Capture, recognition and validation settings are on the add-on's **Settings** page (open **Water meter** in the
+sidebar); they apply at once, without a restart. To correct or lower the published water volume (for example after
+a misread or a meter swap), use **Set current value** on the Live page, or send the new value in m³, such as
+`170.861`, to the "Set current value" number entity in Home Assistant.
 
 ## Your data
 

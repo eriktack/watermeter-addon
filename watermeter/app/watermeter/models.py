@@ -119,6 +119,7 @@ class Status(str, Enum):
     UNREADABLE = "unreadable"
     REJECT_LIST = "reject_list"
     NEGATIVE = "negative"
+    TOO_LARGE = "too_large"        # more than max_jump_l above the max flow × time: never accepted, not even confirmed
     PENDING_JUMP = "pending_jump"  # faster than the max rate; waits for N agreeing readings
     FLOW_MISMATCH = "flow_mismatch"
 

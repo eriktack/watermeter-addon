@@ -10,6 +10,10 @@ Rules, applied in this order to one `ValidatorInput`:
    (also when it is None), whatever the outcome.
 4. First reading (state has no `last_value_l`): OK, becomes the base.
 5. NEGATIVE    direction "up" and `volume_l` < `last_value_l`. State unchanged except `last_flow_lph`.
+5b. TOO_LARGE  `max_jump_l` > 0 and the change (as `delta` in rule 6) exceeds what rule 6 allows by more than
+               `max_jump_l`: delta > allowed + max_jump_l. It grows with the time since the last accepted reading
+               like the rate does, so a long offline time is no problem. Never confirmed by later readings; only
+               "set current value" gets past it. State unchanged except `last_flow_lph`.
 6. Rate        delta = |volume_l - last_value_l| (direction "both") or volume_l - last_value_l ("up");
                allowed = max_rate_lph × hours since `last_time` + rate_slack_l (hours < 0 count as 0).
                delta <= allowed → continue to 7. Otherwise → PENDING_JUMP handling (below).
@@ -23,7 +27,7 @@ PENDING_JUMP handling (rate exceeded):
 - No pending, or not agreeing: pending becomes just this reading. Agreeing: it is appended.
 - If pending now holds `confirm_readings` readings: OK, the reading is accepted as the new value (last_value_l,
   last_time), pending cleared. Otherwise PENDING_JUMP, `value_l` stays the last accepted one.
-- Only an OK reading clears pending; rejections by rules 1–3, 5 and 7 leave it as it is.
+- Only an OK reading clears pending; rejections by rules 1–3, 5, 5b and 7 leave it as it is.
 
 `Decision.value_l` is always the published value after this reading: the new value when OK, otherwise the last
 accepted value (None before the first accepted reading).
@@ -62,13 +66,17 @@ def _hours(start: datetime, end: datetime) -> float:
     return max(0.0, (end - start).total_seconds() / 3600)
 
 
+def _excess(prev_value: int, prev_time: datetime, value: int, time: datetime, settings: ValidationSettings) -> float:
+    """How far the change exceeds what the rate allows in the time between (rule 6); <= 0 means within the rate."""
+    delta = abs(value - prev_value) if settings.direction == "both" else value - prev_value
+    return delta - (settings.max_rate_lph * _hours(prev_time, time) + settings.rate_slack_l)
+
+
 def _step_ok(prev_value: int, prev_time: datetime, value: int, time: datetime, settings: ValidationSettings) -> bool:
     """Direction and rate check of one reading against an earlier one."""
     if settings.direction == "up" and value < prev_value:
         return False
-    delta = abs(value - prev_value) if settings.direction == "both" else value - prev_value
-    allowed = settings.max_rate_lph * _hours(prev_time, time) + settings.rate_slack_l
-    return delta <= allowed
+    return _excess(prev_value, prev_time, value, time, settings) <= 0
 
 
 def _reject(status: Status, state: ValidatorState, detail: str) -> tuple[Decision, ValidatorState]:
@@ -95,6 +103,9 @@ def validate(inp: ValidatorInput, state: ValidatorState, settings: ValidationSet
     last = state.last_value_l
     if settings.direction == "up" and value < last:
         return _reject(Status.NEGATIVE, state, f"{last} -> {value}, lower than the last accepted value")
+    if settings.max_jump_l > 0 and _excess(last, state.last_time, value, inp.time, settings) > settings.max_jump_l:
+        return _reject(Status.TOO_LARGE, state,
+                       f"{last} -> {value}, more than {settings.max_jump_l} l above the max flow")
 
     if _step_ok(last, state.last_time, value, inp.time, settings):
         if settings.flow_check and inp.flow_lph == 0 and previous_flow == 0 \

@@ -26,5 +26,23 @@
     });
   }
 
+  var setButton = document.getElementById("set-value-button");
+  var setStatus = document.getElementById("set-status");
+  if (setButton) {
+    setButton.addEventListener("click", function () {
+      var value = document.getElementById("set-value").value.trim();
+      if (!value || !confirm("Set the current volume to " + value + " m³?")) return;
+      fetch("api/set_value", { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ value: value }) })
+        .then(function (response) {
+          return response.json().catch(function () { return {}; }).then(function (body) {
+            if (!response.ok) throw new Error(body.error || "HTTP " + response.status);
+            location.reload();
+          });
+        })
+        .catch(function (error) { setStatus.textContent = "Not set: " + error.message; setStatus.className = "bad"; });
+    });
+  }
+
   setTimeout(function () { location.reload(); }, seconds * 1000);
 })();

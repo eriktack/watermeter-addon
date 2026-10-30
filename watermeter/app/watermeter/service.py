@@ -6,8 +6,9 @@ Every `capture.interval_s` (and on `capture_now`): capture a burst, save the fra
 Errors in one cycle are logged and the loop continues.
 
 Before regions and a reference image exist (Regions page) the loop only captures and stores frames, so there is
-something to draw the regions on. Files in the data folder: `options.json` (written by Home Assistant, the only source
-of settings), `state.json`, `regions.json`, `reference.jpg`, `labels.json`, `images/`.
+something to draw the regions on. Files in the data folder: `options.json` (the connection, written by Home
+Assistant), `settings.json` (the Settings page; applied at once, `apply_settings`), `state.json`, `regions.json`,
+`reference.jpg`, `labels.json`, `images/`.
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from .mqtt.client import MqttPublisher
 from .mqtt.messages import state_message
 from .pipeline import read_burst, to_validator_input
 from .recognize.base import Recognizer, load_recognizer
-from .settings import Options, Settings, load_options, settings_from_options
+from .settings import Options, Settings, load_options, load_settings, save_settings
 from .storage import ImageStore
 from .validate.rules import set_current_value as apply_current_value
 from .validate.rules import validate
@@ -47,6 +48,8 @@ INGRESS_PORT = 8099          # `ingress_port` in addon/watermeter/config.yaml
 PRUNE_EVERY_S = 3600
 STATE_FILE = "state.json"
 OPTIONS_FILE = "options.json"
+SETTINGS_FILE = "settings.json"
+MODEL_SUFFIXES = (".tflite", ".onnx")
 LABELS_FILE = "labels.json"
 
 
@@ -74,18 +77,22 @@ class Service:
                  clock: Callable[[], datetime] = _utc_now) -> None:
         self.data_dir, self.models_dir = Path(data_dir), Path(models_dir)
         self.options: Options = load_options(self.data_dir / OPTIONS_FILE)
-        if (self.data_dir / "settings.json").exists():
-            log.warning("settings.json is no longer used: set these in the add-on's Configuration tab")
+        try:
+            settings = load_settings(self.data_dir / SETTINGS_FILE)
+        except ValueError as e:
+            log.error("%s; using the defaults until the Settings page saves new ones", e)
+            settings = Settings()
         self.camera = camera if camera is not None else CameraClient(self.options)
         self.mqtt = mqtt if mqtt is not None else MqttPublisher(self.options, VERSION,
                                                                 on_set_value=self.set_current_value)
         self._recognizer_loader = recognizer_loader
         self._clock = clock
         self.store = ImageStore(self.data_dir)
-        self.ctx = WebContext(data_dir=self.data_dir, settings=settings_from_options(self.options), version=VERSION,
-                              state=load_state(self.data_dir / STATE_FILE))
+        self.ctx = WebContext(data_dir=self.data_dir, settings=settings, version=VERSION,
+                              state=load_state(self.data_dir / STATE_FILE), models=self._model_files())
         self.ctx.capture_now = self.cycle
         self.ctx.set_current_value = self.set_current_value
+        self.ctx.apply_settings = self.apply_settings
         self.recognizer: Recognizer | None = None
         self._lock = asyncio.Lock()
         self._cache: tuple[tuple, Regions | None, Image | None] | None = None
@@ -98,6 +105,23 @@ class Service:
     @property
     def settings(self) -> Settings:
         return self.ctx.settings
+
+    def _model_files(self) -> tuple[str, ...]:
+        """The model files below the models folder (for the Settings page), as paths relative to it."""
+        if not self.models_dir.is_dir():
+            return ()
+        return tuple(sorted(p.relative_to(self.models_dir).as_posix() for p in self.models_dir.rglob("*")
+                            if p.suffix in MODEL_SUFFIXES))
+
+    def apply_settings(self, settings: Settings) -> None:
+        """From the Settings page: save, use from now on, reload the model if its settings changed."""
+        old = self.settings.recognition
+        save_settings(self.data_dir / SETTINGS_FILE, settings)
+        self.ctx.settings = settings
+        new = settings.recognition
+        if (new.model, new.min_digit_confidence) != (old.model, old.min_digit_confidence) or self.recognizer is None:
+            self._load_recognizer()
+        log.info("settings saved")
 
     def _load_recognizer(self) -> None:
         rec = self.settings.recognition

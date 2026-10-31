@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Validation: a misread can no longer block the meter for hours. After a gap a rise is confirmed by the next readings, and with the misread limit set, agreeing lower readings correct a wrong value
+
 ## 0.2.3
 
 - Settings: clearer explanations of highest real flow and the misread limit

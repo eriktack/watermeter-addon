@@ -10,12 +10,18 @@ Rules, applied in this order to one `ValidatorInput`:
    (also when it is None), whatever the outcome.
 4. First reading (state has no `last_value_l`): OK, becomes the base.
 5. NEGATIVE    direction "up" and `volume_l` < `last_value_l`. State unchanged except `last_flow_lph`.
+               Correction: with `max_jump_l` > 0 and a drop of at most `max_jump_l`, the reading is a candidate
+               in `pending` like a jump (same agreeing rule); once `confirm_readings` agree it is accepted (OK,
+               detail "corrected"). So one accepted misread does not block the meter until reality catches up.
 5b. TOO_LARGE  `max_jump_l` > 0 and the change (as `delta` in rule 6) exceeds what rule 6 allows by more than
                `max_jump_l`: delta > allowed + max_jump_l. It grows with the time since the last accepted reading
                like the rate does, so a long offline time is no problem. Never confirmed by later readings; only
                "set current value" gets past it. State unchanged except `last_flow_lph`.
 6. Rate        delta = |volume_l - last_value_l| (direction "both") or volume_l - last_value_l ("up");
                allowed = max_rate_lph × hours since `last_time` + rate_slack_l (hours < 0 count as 0).
+               With `interval_s` given (the capture interval), hours are capped at one interval here and in the
+               agreeing rule: after a gap a big rise is confirmed by the next readings instead of trusted at once.
+               Rule 5b always uses the full time.
                delta <= allowed → continue to 7. Otherwise → PENDING_JUMP handling (below).
 7. FLOW_MISMATCH (only if `flow_check`) the volume rose by >= `flow_check_min_increase_l` while both the input's
                `flow_lph` and the state's `last_flow_lph` are exactly 0. State unchanged except `last_flow_lph`.
@@ -27,7 +33,7 @@ PENDING_JUMP handling (rate exceeded):
 - No pending, or not agreeing: pending becomes just this reading. Agreeing: it is appended.
 - If pending now holds `confirm_readings` readings: OK, the reading is accepted as the new value (last_value_l,
   last_time), pending cleared. Otherwise PENDING_JUMP, `value_l` stays the last accepted one.
-- Only an OK reading clears pending; rejections by rules 1–3, 5, 5b and 7 leave it as it is.
+- Only an OK reading clears pending; rejections by rules 1–3, 5 (unless a correction), 5b and 7 leave it as it is.
 
 `Decision.value_l` is always the published value after this reading: the new value when OK, otherwise the last
 accepted value (None before the first accepted reading).
@@ -66,25 +72,32 @@ def _hours(start: datetime, end: datetime) -> float:
     return max(0.0, (end - start).total_seconds() / 3600)
 
 
-def _excess(prev_value: int, prev_time: datetime, value: int, time: datetime, settings: ValidationSettings) -> float:
+def _hours_capped(start: datetime, end: datetime, cap_s: float | None) -> float:
+    hours = _hours(start, end)
+    return hours if cap_s is None else min(hours, cap_s / 3600)
+
+
+def _excess(prev_value: int, prev_time: datetime, value: int, time: datetime, settings: ValidationSettings,
+            cap_s: float | None = None) -> float:
     """How far the change exceeds what the rate allows in the time between (rule 6); <= 0 means within the rate."""
     delta = abs(value - prev_value) if settings.direction == "both" else value - prev_value
-    return delta - (settings.max_rate_lph * _hours(prev_time, time) + settings.rate_slack_l)
+    return delta - (settings.max_rate_lph * _hours_capped(prev_time, time, cap_s) + settings.rate_slack_l)
 
 
-def _step_ok(prev_value: int, prev_time: datetime, value: int, time: datetime, settings: ValidationSettings) -> bool:
+def _step_ok(prev_value: int, prev_time: datetime, value: int, time: datetime, settings: ValidationSettings,
+             cap_s: float | None = None) -> bool:
     """Direction and rate check of one reading against an earlier one."""
     if settings.direction == "up" and value < prev_value:
         return False
-    return _excess(prev_value, prev_time, value, time, settings) <= 0
+    return _excess(prev_value, prev_time, value, time, settings, cap_s) <= 0
 
 
 def _reject(status: Status, state: ValidatorState, detail: str) -> tuple[Decision, ValidatorState]:
     return Decision(status, state.last_value_l, detail), state
 
 
-def validate(inp: ValidatorInput, state: ValidatorState, settings: ValidationSettings
-             ) -> tuple[Decision, ValidatorState]:
+def validate(inp: ValidatorInput, state: ValidatorState, settings: ValidationSettings,
+             interval_s: float | None = None) -> tuple[Decision, ValidatorState]:
     """Apply the rules above. Returns the decision and the new state (the input state is not modified)."""
     if not inp.aligned:
         return _reject(Status.ALIGNMENT, state, "alignment marks not found")
@@ -102,48 +115,53 @@ def validate(inp: ValidatorInput, state: ValidatorState, settings: ValidationSet
 
     last = state.last_value_l
     if settings.direction == "up" and value < last:
-        return _reject(Status.NEGATIVE, state, f"{last} -> {value}, lower than the last accepted value")
+        detail = f"{last} -> {value}, lower than the last accepted value"
+        if 0 < settings.max_jump_l and last - value <= settings.max_jump_l:
+            return _candidate(value, inp, state, settings, interval_s, Status.NEGATIVE, detail)
+        return _reject(Status.NEGATIVE, state, detail)
     if settings.max_jump_l > 0 and _excess(last, state.last_time, value, inp.time, settings) > settings.max_jump_l:
         return _reject(Status.TOO_LARGE, state,
                        f"{last} -> {value}, more than {settings.max_jump_l} l above the max flow")
 
-    if _step_ok(last, state.last_time, value, inp.time, settings):
+    if _step_ok(last, state.last_time, value, inp.time, settings, interval_s):
         if settings.flow_check and inp.flow_lph == 0 and previous_flow == 0 \
                 and value - last >= settings.flow_check_min_increase_l:
             return _reject(Status.FLOW_MISMATCH, state, f"{last} -> {value} while the flow is 0 l/h")
         return _accept(value, inp, state)
 
-    return _pending(value, inp, state, settings)
+    detail = (f"{last} -> {value} in {_seconds(state.last_time, inp.time)} s, "
+              f"max {_allowed_l(state, inp, settings, interval_s)} l")
+    return _candidate(value, inp, state, settings, interval_s, Status.PENDING_JUMP, detail)
 
 
-def _accept(value: int, inp: ValidatorInput, state: ValidatorState) -> tuple[Decision, ValidatorState]:
+def _accept(value: int, inp: ValidatorInput, state: ValidatorState, detail: str = ""
+            ) -> tuple[Decision, ValidatorState]:
     new = ValidatorState(last_value_l=value, last_time=inp.time, last_flow_lph=inp.flow_lph, pending=())
-    return Decision(Status.OK, value), new
+    return Decision(Status.OK, value, detail), new
 
 
-def _pending(value: int, inp: ValidatorInput, state: ValidatorState, settings: ValidationSettings
-             ) -> tuple[Decision, ValidatorState]:
+def _candidate(value: int, inp: ValidatorInput, state: ValidatorState, settings: ValidationSettings,
+               interval_s: float | None, status: Status, detail: str) -> tuple[Decision, ValidatorState]:
+    """A reading that disagrees with the last accepted value: accepted once `confirm_readings` agree, else `status`."""
     last = state.last_value_l
     newest = state.pending[-1] if state.pending else None
-    if newest is not None and _step_ok(newest.value_l, newest.time, value, inp.time, settings):
+    if newest is not None and _step_ok(newest.value_l, newest.time, value, inp.time, settings, interval_s):
         pending = state.pending + (PendingReading(value, inp.time),)
     else:
         pending = (PendingReading(value, inp.time),)
 
     if len(pending) >= settings.confirm_readings:
-        return _accept(value, inp, state)
-
-    detail = f"{last} -> {value} in {_seconds(state.last_time, inp.time)} s, max {_allowed_l(state, inp, settings)} l"
-    new = replace(state, pending=pending)
-    return Decision(Status.PENDING_JUMP, last, detail), new
+        return _accept(value, inp, state, f"corrected from {last}" if value < last else "")
+    return Decision(status, last, detail), replace(state, pending=pending)
 
 
 def _seconds(start: datetime | None, end: datetime) -> int:
     return int((end - start).total_seconds()) if start is not None else 0
 
 
-def _allowed_l(state: ValidatorState, inp: ValidatorInput, settings: ValidationSettings) -> int:
-    hours = _hours(state.last_time, inp.time) if state.last_time is not None else 0.0
+def _allowed_l(state: ValidatorState, inp: ValidatorInput, settings: ValidationSettings,
+               interval_s: float | None) -> int:
+    hours = _hours_capped(state.last_time, inp.time, interval_s) if state.last_time is not None else 0.0
     return round(settings.max_rate_lph * hours + settings.rate_slack_l)
 
 

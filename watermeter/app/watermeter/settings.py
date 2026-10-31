@@ -120,10 +120,10 @@ FIELDS: tuple[Field, ...] = (
     Field("validation", "confirm_readings", "Readings to confirm a fast rise", "int", 1, 20,
           help="How many readings in a row must agree before a rise faster than the highest flow is believed."),
     Field("validation", "max_jump_l", "Rise that is always a misread (l)", "int", 0, 10_000_000,
-          help="Counted on top of what the highest flow allows since the last good reading, so time offline is no "
-               "problem (a week at 2000 l/h allows 336 m³ before this limit starts). A reading further above is "
-               "rejected, even if the next readings agree; only \"Set current value\" gets past it. 0 = off; "
-               "1000 is a good start."),
+          help="A reading this many litres above what the highest flow allows since the last good reading is "
+               "rejected, even if the next readings agree. Only \"Set current value\" gets past it. It also "
+               "lets a misread that slipped through be corrected: readings up to this much lower are accepted once "
+               "the next readings agree. 0 = off; 1000 is a good start."),
     Field("validation", "min_confidence", "Reading certainty needed (0–1)", "float", 0, 1,
           help="A reading is only used if its least certain digit is at least this sure."),
     Field("validation", "reject_patterns", "Known misreads", "patterns",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- Camera package: auto exposure aimed brighter, so the display no longer darkens during a burst (this caused most misreads). Update the camera in ESPHome (Install) to get it.
+
 ## 0.2.5
 
 - A lower reading must last 10 minutes before it replaces the value, so a short burst of misreads (e.g. while adjusting the light) cannot lower it. A new reference image on the Regions page now moves the boxes along with the camera instead of making them invalid.

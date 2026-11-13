@@ -32,6 +32,11 @@ esp32_camera:
   jpeg_quality: 10
   max_framerate: 1 fps
   idle_framerate: 0 fps
+  # Exposure: the LEDs light the yellow meter body, so plain auto exposure turns down during a burst and the LCD
+  # digits go dark (2026-11-13: the first frame of each burst bright and read right, the next four ~25 % darker and
+  # misread, 3 → 5, 5 → 9). Aim auto exposure as bright as it goes; it still follows changes in the light.
+  aec_mode: AUTO
+  ae_level: 2
 
 # The light: our own LED strip/LEDs behind a transistor on GPIO13 (plan §3). Full PWM frequency avoids dark bands
 # (rolling shutter); the brightness is set by the resistors, so the light is always on at 100 %.

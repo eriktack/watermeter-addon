@@ -128,6 +128,22 @@ def regions_to_dict(regions: Regions) -> dict:
     }
 
 
+def move_regions(regions: Regions, dx: int, dy: int, rotation_deg: float) -> Regions:
+    """The regions with every box moved by (dx, dy) and the given rotation offset: for a new reference image taken
+    after the camera moved a little. Raises ValueError if a box would leave the image."""
+    def move(b: Box) -> list[int]:
+        return [b.x + dx, b.y + dy, b.w, b.h]
+
+    def line(ln: Line | None) -> dict | None:
+        return None if ln is None else {"digits": [move(b) for b in ln.digits], "decimals": ln.decimals}
+
+    return regions_from_dict({
+        "reference_width": regions.reference_width, "reference_height": regions.reference_height,
+        "rotation_deg": round(rotation_deg, 1),
+        "marks": [{"name": m.name, "box": move(m.box)} for m in regions.marks],
+        "volume": line(regions.volume), "flow": line(regions.flow)})
+
+
 def _write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")

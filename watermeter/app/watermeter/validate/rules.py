@@ -13,6 +13,9 @@ Rules, applied in this order to one `ValidatorInput`:
                Correction: with `max_jump_l` > 0 and a drop of at most `max_jump_l`, the reading is a candidate
                in `pending` like a jump (same agreeing rule); once `confirm_readings` agree it is accepted (OK,
                detail "corrected"). So one accepted misread does not block the meter until reality catches up.
+               With `interval_s` given, the agreeing lower readings must also span at least
+               `CORRECTION_MIN_INTERVALS` capture intervals (first to newest), so a short burst of misreads (light
+               changing, several manual captures in a minute) cannot lower the value.
 5b. TOO_LARGE  `max_jump_l` > 0 and the change (as `delta` in rule 6) exceeds what rule 6 allows by more than
                `max_jump_l`: delta > allowed + max_jump_l. It grows with the time since the last accepted reading
                like the rate does, so a long offline time is no problem. Never confirmed by later readings; only
@@ -45,6 +48,9 @@ from datetime import datetime
 
 from ..models import Decision, PendingReading, Status, ValidatorInput, ValidatorState
 from ..settings import ValidationSettings
+
+
+CORRECTION_MIN_INTERVALS = 10  # a drop must be read for this many capture intervals before it replaces the value
 
 
 def matches_reject_pattern(volume_text: str, pattern: str) -> bool:
@@ -150,8 +156,11 @@ def _candidate(value: int, inp: ValidatorInput, state: ValidatorState, settings:
     else:
         pending = (PendingReading(value, inp.time),)
 
-    if len(pending) >= settings.confirm_readings:
-        return _accept(value, inp, state, f"corrected from {last}" if value < last else "")
+    is_drop = value < last
+    long_enough = (not is_drop or interval_s is None
+                   or (pending[-1].time - pending[0].time).total_seconds() >= CORRECTION_MIN_INTERVALS * interval_s)
+    if len(pending) >= settings.confirm_readings and long_enough:
+        return _accept(value, inp, state, f"corrected from {last}" if is_drop else "")
     return Decision(status, last, detail), replace(state, pending=pending)
 
 

@@ -222,13 +222,14 @@
     changed();
   };
   $('use-latest').onclick = async () => {
-    if (state.volume && !confirm('A new reference image makes the saved boxes invalid. Continue?')) return;
-    try { await json('api/reference/latest', { method: 'POST' }); await load(); say('Reference updated.'); }
+    if (dirty && !confirm('Unsaved changes to the boxes are lost. Continue?')) return;
+    try { const r = await json('api/reference/latest', { method: 'POST' }); await load(); say(r.message || 'Reference updated.'); }
     catch (e) { alert(e.message); }
   };
   $('upload').onchange = async e => {
     const file = e.target.files[0]; if (!file) return;
-    try { await json('api/reference', { method: 'POST', body: await file.arrayBuffer() }); await load(); say('Reference updated.'); }
+    if (dirty && !confirm('Unsaved changes to the boxes are lost. Continue?')) { e.target.value = ''; return; }
+    try { const r = await json('api/reference', { method: 'POST', body: await file.arrayBuffer() }); await load(); say(r.message || 'Reference updated.'); }
     catch (err) { alert(err.message); }
   };
 

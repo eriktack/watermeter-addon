@@ -4,7 +4,8 @@ Page `regions`, API (all paths relative, for ingress):
 - `GET api/regions` → the saved regions as JSON (`null` if none) plus the reference size.
 - `POST api/regions` (JSON) → validate and save; 400 with `{"error": ...}` for invalid regions.
 - `GET api/reference.jpg`; `POST api/reference` (body = JPEG) sets it; `POST api/reference/latest` copies the latest
-  captured frame.
+  captured frame. Saved boxes follow a new reference of the same size: the new image is aligned on the old one and
+  every box is moved by that (`move_regions`); the answer's `message` says what happened.
 - `GET api/crop/<line>/<index>.png?source=reference|latest` → one digit crop (`line` = `volume` or `flow`); `latest`
   aligns the newest captured frame first.
 - `GET api/alignment` → how well the newest frame aligns (scores, shift, rotation).
@@ -12,6 +13,7 @@ Page `regions`, API (all paths relative, for ingress):
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import cv2
 from aiohttp import web
@@ -19,8 +21,8 @@ from aiohttp import web
 from ...storage import ImageStore
 from ...vision.align import align
 from ...vision.images import crop, decode_jpeg, enhance_contrast, rotate
-from ...vision.regions_io import (load_reference_bytes, load_regions, regions_from_dict, regions_to_dict,
-                                  save_reference, save_regions)
+from ...vision.regions_io import (load_reference_bytes, load_regions, move_regions, regions_from_dict,
+                                  regions_to_dict, save_reference, save_regions)
 
 BODY = """\
 <div class="regions">
@@ -122,8 +124,8 @@ async def api_set_reference(request: web.Request) -> web.Response:
         _jpeg_size(jpeg)
     except ValueError:
         return _json_error("that is not a JPEG image")
-    save_reference(_data_dir(request), jpeg)
-    return web.json_response({"ok": True})
+    message = _set_reference(_data_dir(request), jpeg, context_min_score(request))
+    return web.json_response({"ok": True, "message": message})
 
 
 async def api_reference_from_latest(request: web.Request) -> web.Response:
@@ -131,8 +133,43 @@ async def api_reference_from_latest(request: web.Request) -> web.Response:
     latest = ImageStore(data_dir).latest()
     if latest is None:
         return _json_error("no camera image yet", 404)
-    save_reference(data_dir, (data_dir / latest).read_bytes())
-    return web.json_response({"ok": True})
+    message = _set_reference(data_dir, (data_dir / latest).read_bytes(), context_min_score(request))
+    return web.json_response({"ok": True, "message": message})
+
+
+def _follow(new, old, regions, min_score: float):
+    """`regions` moved onto the new reference image `new`: its tilt against `old` goes into the rotation offset (so
+    the boxes stay level with the digits), then the boxes are shifted by where the marks are found."""
+    tilt = align(new, old, regions, min_score)
+    if tilt.image is None:
+        raise ValueError("the alignment marks were not found in it")
+    rotation = round(regions.rotation_deg - tilt.rotation_deg, 1)
+    level = replace(regions, rotation_deg=0.0)  # both images are turned already
+    found = align(rotate(new, rotation), rotate(old, regions.rotation_deg), level, min_score)
+    if found.image is None:
+        raise ValueError("the alignment marks were not found in it")
+    return move_regions(regions, round(-found.shift[0]), round(-found.shift[1]), rotation)
+
+
+def _set_reference(data_dir, jpeg: bytes, min_score: float) -> str:
+    """Save `jpeg` as the reference; saved boxes follow it when it has the old reference's size. Returns a message."""
+    regions, old = load_regions(data_dir), load_reference_bytes(data_dir)
+    message = "Reference updated."
+    if regions is not None and old is not None:
+        if _jpeg_size(jpeg) != _jpeg_size(old):
+            message = "Reference updated. It has another size than the old one: draw the boxes again."
+        else:
+            try:
+                moved = _follow(decode_jpeg(jpeg), decode_jpeg(old), regions, min_score)
+                save_regions(data_dir, moved)
+                message = (f"Reference updated; the boxes moved with the image "
+                           f"({moved.volume.digits[0].x - regions.volume.digits[0].x:+d}, "
+                           f"{moved.volume.digits[0].y - regions.volume.digits[0].y:+d} px, rotation "
+                           f"{regions.rotation_deg:.1f}° → {moved.rotation_deg:.1f}°). Check them in the crop preview.")
+            except ValueError as e:
+                message = f"Reference updated, but the boxes could not follow it ({e}): check and move them."
+    save_reference(data_dir, jpeg)
+    return message
 
 
 def _latest_frame(data_dir):

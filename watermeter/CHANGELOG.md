@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- A lower reading must last 10 minutes before it replaces the value, so a short burst of misreads (e.g. while adjusting the light) cannot lower it. A new reference image on the Regions page now moves the boxes along with the camera instead of making them invalid.
+
 ## 0.2.4
 
 - Validation: a misread can no longer block the meter for hours. After a gap a rise is confirmed by the next readings, and with the misread limit set, agreeing lower readings correct a wrong value

@@ -36,6 +36,9 @@ PENDING_JUMP handling (rate exceeded):
 - No pending, or not agreeing: pending becomes just this reading. Agreeing: it is appended.
 - If pending now holds `confirm_readings` readings: OK, the reading is accepted as the new value (last_value_l,
   last_time), pending cleared. Otherwise PENDING_JUMP, `value_l` stays the last accepted one.
+- With `interval_s` given, a rise is only accepted this way if it also fits `max_rate_lph` over the whole time since
+  the last accepted reading (uncapped): agreeing misreads cannot add more water than the house can use. Until it
+  fits, it stays PENDING_JUMP (a real rise gets there as the time grows).
 - Only an OK reading clears pending; rejections by rules 1–3, 5 (unless a correction), 5b and 7 leave it as it is.
 
 `Decision.value_l` is always the published value after this reading: the new value when OK, otherwise the last
@@ -159,7 +162,9 @@ def _candidate(value: int, inp: ValidatorInput, state: ValidatorState, settings:
     is_drop = value < last
     long_enough = (not is_drop or interval_s is None
                    or (pending[-1].time - pending[0].time).total_seconds() >= CORRECTION_MIN_INTERVALS * interval_s)
-    if len(pending) >= settings.confirm_readings and long_enough:
+    possible = (is_drop or interval_s is None
+                or _excess(last, state.last_time, value, inp.time, settings) <= 0)
+    if len(pending) >= settings.confirm_readings and long_enough and possible:
         return _accept(value, inp, state, f"corrected from {last}" if is_drop else "")
     return Decision(status, last, detail), replace(state, pending=pending)
 

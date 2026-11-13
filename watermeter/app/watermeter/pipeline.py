@@ -7,7 +7,7 @@ from .models import DigitResult, Frame, Image, LineReading, RawReading, Regions,
 from .recognize.base import Recognizer
 from .recognize.vote import vote_line
 from .vision.align import align
-from .vision.images import crop, decode_jpeg, enhance_contrast
+from .vision.images import crop, decode_jpeg, enhance_contrast, with_margin
 
 
 def _recognize(recognizer: Recognizer, crops: list[Image], enhance: bool = False) -> list[DigitResult]:
@@ -26,8 +26,8 @@ def read_burst(frames: Sequence[Frame], reference: Image, regions: Regions, reco
     aligned=False and the volume line all unknown. `captured_at` = the first frame's time."""
     if not frames:
         raise ValueError("read_burst needs at least one frame")
-    volume_boxes = list(regions.volume.digits)
-    flow_boxes = list(regions.flow.digits) if regions.flow is not None else []
+    volume_boxes = with_margin(regions.volume.digits)   # the model wants some space around each digit
+    flow_boxes = with_margin(regions.flow.digits) if regions.flow is not None else []
 
     volume_votes: list[list[DigitResult]] = []
     flow_votes: list[list[DigitResult]] = []

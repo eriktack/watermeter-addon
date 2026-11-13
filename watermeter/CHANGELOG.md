@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.7
+
+- Fixes most misreads: each digit is now read with a little space around it, which the digit model needs (on tight boxes a 3 could become 9). A rise confirmed by several readings must also be physically possible since the last good reading.
+
 ## 0.2.6
 
 - Camera package: auto exposure aimed brighter, so the display no longer darkens during a burst (this caused most misreads). Update the camera in ESPHome (Install) to get it.

@@ -38,13 +38,14 @@ def enhance_contrast(image: Image) -> Image:
     return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
 
 
-DIGIT_MARGIN = 0.10  # each digit box is widened by this share of its size on every side before recognition
+DIGIT_MARGIN = 0.15  # each digit box is widened by this share of its size on every side before recognition
 
 
 def with_margin(boxes: Sequence[Box]) -> list[Box]:
     """The boxes the digit model gets cropped: each with `DIGIT_MARGIN` around it. The haverland models are trained on
     digits with some space around them; on boxes drawn tight to the digit their answer flipped with a 3 px shift
-    (2026-11-13: 79 of 1316 digit reads changed, a decimal 3 read as 9 or "not a number"; with 10 %: none)."""
+    (2026-11-13: 79 of 1316 digit reads changed, a decimal 3 read as 9 or "not a number"). On 47 frames with known
+    values: 39 right with 10 %, 47 with 15 % (and with every margin from 10 to 20 % around it)."""
     return [Box(b.x - round(b.w * DIGIT_MARGIN), b.y - round(b.h * DIGIT_MARGIN),
                 b.w + 2 * round(b.w * DIGIT_MARGIN), b.h + 2 * round(b.h * DIGIT_MARGIN)) for b in boxes]
 

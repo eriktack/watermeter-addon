@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.8
+
+- Digit margin raised to 15 %: with 10 % a 3 could still be read as 9.
+
 ## 0.2.7
 
 - Fixes most misreads: each digit is now read with a little space around it, which the digit model needs (on tight boxes a 3 could become 9). A rise confirmed by several readings must also be physically possible since the last good reading.

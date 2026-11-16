@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0
+
+- Version 1.0: the reader works as expected. Nothing changed in how it reads; over two days it published no wrong value, also without anything stuck on the meter (a few unreadable pictures are skipped and the next reading is right).
+
 ## 0.2.8
 
 - Digit margin raised to 15 %: with 10 % a 3 could still be read as 9.
